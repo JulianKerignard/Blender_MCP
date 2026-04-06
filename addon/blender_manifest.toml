@@ -5,6 +5,7 @@ name = "Blender MCP"
 tagline = "MCP server - allows AI assistants to control Blender"
 maintainer = "Julian Kerignard"
 type = "add-on"
+license = ["SPDX:MIT"]
 blender_version_min = "4.2.0"
 
 [permissions]

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "blender": {
+      "command": "C:\\Users\\jujuk\\AppData\\Local\\Programs\\Python\\Python310\\python.exe",
+      "args": ["D:\\Dev\\MCP\\BlenderMCP\\run_mcp.py"]
+    }
+  }
+}
