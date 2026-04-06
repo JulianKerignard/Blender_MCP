@@ -42,12 +42,14 @@ user-invocable: true
    - `auto_mark_seams(name, 30)` -- toutes les arêtes vives
    - `unwrap_uv(name, "unwrap")`
    - `pack_uv_islands(name, 0.005)`
+   - `get_uv_snapshot("NomObjet")` pour vérifier le layout UV après pack
    - Scaling UV par visibilité (devant > côtés > dessous)
 
 7. **Vérifier** :
    - `get_mesh_stats` -- viser < 500 faces
-   - `focus_viewport_on` + `get_scene_snapshot`
-   - `get_uv_snapshot` pour les UVs
+   1. `focus_viewport_on("NomObjet")` pour centrer la vue sur l'asset
+   2. `get_scene_snapshot()` pour voir le résultat visuel
+   3. `get_uv_snapshot("NomObjet")` pour voir le layout UV
 
 8. **Exporter** :
    - `export_model(path, "fbx")` pour Unity
@@ -73,3 +75,9 @@ user-invocable: true
 - Sphères = ico_sphere avec 2 subdivisions max
 - Apply transforms avant export
 - Noms sans espaces ni accents
+
+## En cas d'erreur
+- `undo()` pour annuler la dernière opération
+- `reset_uv("NomObjet")` si les UVs sont cassées ou mal dépliées, puis recommencer l'unwrap
+- Si le poly count est trop élevé : simplifier la géométrie manuellement ou réduire les segments des primitives
+- Si le flat shading ne s'applique pas : vérifier avec `set_smooth_shading(name, smooth=False)` sur chaque objet individuellement

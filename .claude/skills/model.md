@@ -20,6 +20,7 @@ user-invocable: true
    - `edit_mesh` pour extrude, bevel, inset, subdivide
    - `add_modifier` pour subdivision surface, mirror, boolean, array
    - `boolean_operation` pour combiner/soustraire des formes
+   - `focus_viewport_on(name)` pour vérifier la géométrie après modifications
 6. **Appliquer les transforms** : `apply_transform` avant de continuer
 7. **Matériaux** :
    - `create_material` avec les bonnes couleurs/propriétés
@@ -33,7 +34,8 @@ user-invocable: true
 9. **Vérifier** :
    - `focus_viewport_on` pour centrer la vue
    - `get_scene_snapshot` pour voir le résultat
-   - `get_mesh_stats` pour vérifier la topologie
+   - `get_mesh_stats(name)` pour vérifier la topologie (nombre de vertices, edges, faces)
+   - `list_materials()` pour vérifier l'assignation des matériaux
 
 ## Style PSX (si demandé)
 - Low poly : pas de subdivision surface
@@ -46,3 +48,10 @@ user-invocable: true
 - Nommer proprement chaque objet
 - Appliquer les transforms avant UV/export
 - Demander clarification si la description est ambiguë
+
+## En cas d'erreur
+- `undo()` pour annuler la dernière opération
+- Si un objet a disparu : vérifier avec `list_objects()` et `toggle_object_visibility`
+- Si les proportions sont mauvaises : `apply_transform` puis ajuster avec `set_transform`
+- Si un boolean échoue : vérifier que les meshes se chevauchent et sont non-coplanaires
+- Si un matériau n'apparaît pas : vérifier avec `list_materials()` et `assign_material`

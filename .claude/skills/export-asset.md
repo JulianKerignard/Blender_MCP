@@ -9,7 +9,7 @@ user-invocable: true
 ## Workflow
 
 1. **Vérifier la géométrie** :
-   - `get_mesh_stats` pour vérifier tris/quads, non-manifold, loose verts
+   - `get_mesh_stats` pour vérifier : nombre de tris/quads, edges non-manifold, loose vertices, bounding box
    - Corriger si nécessaire (join loose parts, remove doubles via execute_blender_code)
 
 2. **Préparer le mesh** :
@@ -21,10 +21,10 @@ user-invocable: true
 3. **Vérifier les UVs** :
    - `get_uv_info` pour vérifier qu'il y a des UVs
    - Si pas d'UVs : `auto_mark_seams` + `unwrap_uv` + `pack_uv_islands`
-   - `get_uv_snapshot` pour vérifier visuellement
+   - `get_uv_snapshot(name)` pour vérifier visuellement le layout UV
 
 4. **Vérifier les matériaux** :
-   - `list_materials` pour voir ce qui est assigné
+   - `list_materials()` pour voir ce qui est assigné
    - S'assurer que les noms sont propres
 
 5. **Exporter** :
@@ -55,3 +55,6 @@ user-invocable: true
 - Vérifier les stats avec `get_mesh_stats`
 - Nommer les fichiers sans espaces ni caractères spéciaux
 - FBX pour Unity/Unreal, glTF pour Godot/Web
+
+## En cas d'erreur
+- `undo()` pour annuler la dernière action

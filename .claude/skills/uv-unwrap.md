@@ -24,11 +24,8 @@ user-invocable: true
    - `pack_uv_islands(name, margin=0.01)` pour du bake avec margin
 
 4. **Optimiser pour le game** (optionnel) :
-   - Scaling par visibilité avec `execute_blender_code` :
-     - Faces devant = plus grand (100%)
-     - Faces côtés = moyen (85%)
-     - Faces cachées = petit (30%)
-   - `scale_uv` pour ajuster le tiling global
+   - Scaling par visibilité avec `scale_uv(name, [u_scale, v_scale], pivot="CENTER")` pour ajuster le tiling
+   - Pour un scaling avancé par face, utiliser `execute_blender_code` avec du code BMesh
 
 5. **Vérifier** :
    - `get_uv_info` pour voir les layers
@@ -63,3 +60,7 @@ user-invocable: true
 - Vérifier avec `get_uv_snapshot` après chaque étape
 - Pour du game : margin 0.005 minimum entre îlots
 - Pour du bake : margin 0.01-0.02
+
+## En cas d'erreur
+- `undo()` pour annuler la dernière action
+- `reset_uv(name)` pour effacer les UVs et recommencer le dépliage

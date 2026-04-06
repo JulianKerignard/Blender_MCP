@@ -26,12 +26,13 @@ user-invocable: true
 3. **Environnement** :
    - `polyhaven_search("studio", "hdris")` pour trouver un HDRI
    - `polyhaven_download_hdri(asset_id, "1k")` pour l'appliquer
-   - Ou via `execute_blender_code` pour une couleur de fond simple
+   - Ou `execute_blender_code` pour changer la couleur de fond directement via bpy
 
 4. **Rendu** :
    - `set_render_settings` pour configurer moteur, résolution, samples
    - EEVEE : rapide, bon pour preview et stylisé
    - Cycles : réaliste, plus lent
+   - `focus_viewport_on("NomObjet")` pour cadrer la vue avant les snapshots
    - `render_preview` pour un aperçu rapide
    - `render_image(return_image=True)` pour le rendu final
 
@@ -60,3 +61,9 @@ user-invocable: true
 - Toujours vérifier avec `get_scene_snapshot` ou `render_preview`
 - Nommer les lumières clairement (Key_Light, Fill_Light, Rim_Light)
 - Pour du jeu : EEVEE suffit pour le preview
+
+## En cas d'erreur
+- `undo()` pour annuler la dernière opération
+- Si l'éclairage est trop fort/faible : ajuster avec `set_light_properties` (energy, color)
+- Si la caméra ne vise pas le bon objet : `point_camera_at(camera_name, target)`
+- Si le HDRI ne s'applique pas : vérifier avec `execute_blender_code` que le World shader est correctement configuré

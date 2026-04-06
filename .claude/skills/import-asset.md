@@ -37,13 +37,17 @@ Gratuit, pas de clé API. Tous les assets sont CC0.
 
 1. **Vérifier** : `list_objects` pour voir ce qui a été importé
 2. **Renommer** : `rename_object` pour des noms clairs
-3. **Positionner** : `set_transform` pour placer au bon endroit
-4. **Redimensionner** : `set_transform(name, scale=[...])` + `apply_transform`
-5. **Organiser** : `move_to_collection` dans la bonne collection
-6. **Snapshot** : `get_scene_snapshot` pour vérifier
+3. **Vérifier les matériaux** : `list_materials()` pour voir ce qui a été importé
+4. **Positionner** : `set_transform` pour placer au bon endroit
+5. **Redimensionner** : `set_transform(name, scale=[...])` + `apply_transform`
+6. **Organiser** : `move_to_collection` dans la bonne collection
+7. **Snapshot** : `get_scene_snapshot` pour vérifier
 
 ## Règles
 - Vérifier la license avant d'utiliser un asset SketchFab
 - Polyhaven est CC0 = libre d'utilisation partout
 - Toujours appliquer les transforms après import
 - Renommer les objets importés (les noms par défaut sont souvent moches)
+
+## En cas d'erreur
+- `undo()` pour annuler la dernière action

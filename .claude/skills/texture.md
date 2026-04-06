@@ -23,6 +23,7 @@ user-invocable: true
    - `add_texture(material, path, "BASE_COLOR")` pour la diffuse
    - `add_texture(material, path, "NORMAL")` pour la normal map
    - `add_texture(material, path, "ROUGHNESS")` pour la roughness
+   - Si les UVs ne sont pas bons : `reset_uv(name)` pour tout effacer et recommencer
 6. **Assets Polyhaven** (textures PBR gratuites) :
    - `polyhaven_search(query, "textures")` pour trouver
    - `polyhaven_download_texture(asset_id, "1k", material_name)` pour télécharger et appliquer
@@ -46,3 +47,8 @@ user-invocable: true
 - Apply scale avant unwrap
 - Vérifier les UVs avec `get_uv_snapshot`
 - Pour du PSX : pas de normal map, juste diffuse avec haute roughness
+- Utiliser `list_materials()` pour vérifier les matériaux assignés
+
+## En cas d'erreur
+- `undo()` pour annuler la dernière action
+- `reset_uv(name)` pour effacer les UVs et recommencer le dépliage
