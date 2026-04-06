@@ -103,6 +103,10 @@ def _register_tools():
         camera,
         polyhaven,
         collections,
+        animation,
+        cursor,
+        text,
+        constraints,
     )
 
 _register_tools()
