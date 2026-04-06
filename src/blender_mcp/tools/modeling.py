@@ -504,3 +504,299 @@ else:
     }}
 """
     return _exec_json(code)
+
+
+@mcp.tool()
+def get_vertices(name: str, limit: int = 500) -> str:
+    """Get vertex positions of a mesh object in local and world space.
+
+    Essential for precise modeling -- lets Claude see exactly where geometry is.
+
+    Args:
+        name: Name of the mesh object.
+        limit: Maximum vertices to return. Default 500.
+    """
+    code = f"""
+import bpy
+
+obj = bpy.data.objects.get({name!r})
+if obj is None:
+    result = {{"error": "Object " + {name!r} + " not found"}}
+elif obj.type != 'MESH':
+    result = {{"error": "Object " + {name!r} + " is not a mesh"}}
+else:
+    mesh = obj.data
+    world_matrix = obj.matrix_world
+    total = len(mesh.vertices)
+    limit = min({limit!r}, total)
+
+    verts = []
+    for i in range(limit):
+        v = mesh.vertices[i]
+        world_co = world_matrix @ v.co
+        verts.append({{
+            "index": i,
+            "local": [round(v.co.x, 5), round(v.co.y, 5), round(v.co.z, 5)],
+            "world": [round(world_co.x, 5), round(world_co.y, 5), round(world_co.z, 5)],
+        }})
+
+    result = {{
+        "object": obj.name,
+        "total_vertices": total,
+        "returned": limit,
+        "vertices": verts,
+    }}
+"""
+    return _exec_json(code)
+
+
+@mcp.tool()
+def set_vertices(name: str, vertex_data: list[dict]) -> str:
+    """Set vertex positions on a mesh for precise vertex-level modeling.
+
+    Args:
+        name: Name of the mesh object.
+        vertex_data: List of dicts with "index" and "co" keys.
+            Example: [{"index": 0, "co": [1.0, 2.0, 3.0]}]
+            Coordinates are in local space.
+    """
+    code = f"""
+import bpy
+import bmesh
+
+obj = bpy.data.objects.get({name!r})
+if obj is None:
+    result = {{"error": "Object " + {name!r} + " not found"}}
+elif obj.type != 'MESH':
+    result = {{"error": "Object " + {name!r} + " is not a mesh"}}
+else:
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+
+    try:
+        bpy.ops.object.mode_set(mode='EDIT')
+        bm = bmesh.from_edit_mesh(obj.data)
+        bm.verts.ensure_lookup_table()
+
+        vertex_data = {vertex_data!r}
+        moved = 0
+        for vd in vertex_data:
+            idx = vd.get("index")
+            co = vd.get("co")
+            if idx is not None and co is not None and 0 <= idx < len(bm.verts):
+                bm.verts[idx].co = co
+                moved += 1
+
+        bmesh.update_edit_mesh(obj.data)
+    finally:
+        bpy.ops.object.mode_set(mode='OBJECT')
+
+    result = {{
+        "object": obj.name,
+        "vertices_moved": moved,
+    }}
+"""
+    return _exec_json(code)
+
+
+@mcp.tool()
+def get_faces(name: str, limit: int = 500) -> str:
+    """Get face data: vertex indices, normal, area, material index, center.
+
+    Args:
+        name: Name of the mesh object.
+        limit: Maximum faces to return. Default 500.
+    """
+    code = f"""
+import bpy
+
+obj = bpy.data.objects.get({name!r})
+if obj is None:
+    result = {{"error": "Object " + {name!r} + " not found"}}
+elif obj.type != 'MESH':
+    result = {{"error": "Object " + {name!r} + " is not a mesh"}}
+else:
+    mesh = obj.data
+    total = len(mesh.polygons)
+    limit = min({limit!r}, total)
+
+    faces = []
+    for i in range(limit):
+        f = mesh.polygons[i]
+        faces.append({{
+            "index": i,
+            "vertices": list(f.vertices),
+            "normal": [round(f.normal.x, 4), round(f.normal.y, 4), round(f.normal.z, 4)],
+            "area": round(f.area, 6),
+            "material_index": f.material_index,
+            "center": [round(f.center.x, 4), round(f.center.y, 4), round(f.center.z, 4)],
+        }})
+
+    result = {{
+        "object": obj.name,
+        "total_faces": total,
+        "returned": limit,
+        "faces": faces,
+    }}
+"""
+    return _exec_json(code)
+
+
+@mcp.tool()
+def select_vertices(name: str, vertex_indices: list[int]) -> str:
+    """Select specific vertices before operations like extrude or delete.
+
+    Args:
+        name: Name of the mesh object.
+        vertex_indices: List of vertex indices to select.
+    """
+    code = f"""
+import bpy
+import bmesh
+
+obj = bpy.data.objects.get({name!r})
+if obj is None:
+    result = {{"error": "Object " + {name!r} + " not found"}}
+elif obj.type != 'MESH':
+    result = {{"error": "Object " + {name!r} + " is not a mesh"}}
+else:
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+
+    try:
+        bpy.ops.object.mode_set(mode='EDIT')
+        bm = bmesh.from_edit_mesh(obj.data)
+        bm.verts.ensure_lookup_table()
+        bpy.ops.mesh.select_all(action='DESELECT')
+
+        indices = {vertex_indices!r}
+        selected = 0
+        for idx in indices:
+            if 0 <= idx < len(bm.verts):
+                bm.verts[idx].select = True
+                selected += 1
+
+        bmesh.update_edit_mesh(obj.data)
+    finally:
+        bpy.ops.object.mode_set(mode='OBJECT')
+
+    result = {{"object": obj.name, "selected": selected}}
+"""
+    return _exec_json(code)
+
+
+@mcp.tool()
+def select_faces(name: str, face_indices: list[int]) -> str:
+    """Select specific faces before extrude, inset, delete, or material assignment.
+
+    Args:
+        name: Name of the mesh object.
+        face_indices: List of face indices to select.
+    """
+    code = f"""
+import bpy
+import bmesh
+
+obj = bpy.data.objects.get({name!r})
+if obj is None:
+    result = {{"error": "Object " + {name!r} + " not found"}}
+elif obj.type != 'MESH':
+    result = {{"error": "Object " + {name!r} + " is not a mesh"}}
+else:
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+
+    try:
+        bpy.ops.object.mode_set(mode='EDIT')
+        bm = bmesh.from_edit_mesh(obj.data)
+        bm.faces.ensure_lookup_table()
+        bpy.ops.mesh.select_all(action='DESELECT')
+
+        indices = {face_indices!r}
+        selected = 0
+        for idx in indices:
+            if 0 <= idx < len(bm.faces):
+                bm.faces[idx].select = True
+                selected += 1
+
+        bmesh.update_edit_mesh(obj.data)
+    finally:
+        bpy.ops.object.mode_set(mode='OBJECT')
+
+    result = {{"object": obj.name, "selected": selected}}
+"""
+    return _exec_json(code)
+
+
+@mcp.tool()
+def delete_geometry(
+    name: str,
+    vertex_indices: list[int] | None = None,
+    face_indices: list[int] | None = None,
+) -> str:
+    """Delete specific vertices or faces from a mesh.
+
+    Args:
+        name: Name of the mesh object.
+        vertex_indices: Vertex indices to delete (removes connected edges/faces too).
+        face_indices: Face indices to delete (only removes the faces).
+    """
+    if vertex_indices is None and face_indices is None:
+        return _error_json("Provide vertex_indices or face_indices to delete.")
+
+    delete_type = "VERT" if vertex_indices is not None else "FACE"
+    indices = vertex_indices if vertex_indices is not None else face_indices
+
+    code = f"""
+import bpy
+import bmesh
+
+obj = bpy.data.objects.get({name!r})
+if obj is None:
+    result = {{"error": "Object " + {name!r} + " not found"}}
+elif obj.type != 'MESH':
+    result = {{"error": "Object " + {name!r} + " is not a mesh"}}
+else:
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+
+    verts_before = len(obj.data.vertices)
+    faces_before = len(obj.data.polygons)
+
+    try:
+        bpy.ops.object.mode_set(mode='EDIT')
+        bm = bmesh.from_edit_mesh(obj.data)
+        bpy.ops.mesh.select_all(action='DESELECT')
+
+        delete_type = {delete_type!r}
+        indices = {indices!r}
+
+        if delete_type == "VERT":
+            bm.verts.ensure_lookup_table()
+            for idx in indices:
+                if 0 <= idx < len(bm.verts):
+                    bm.verts[idx].select = True
+        else:
+            bm.faces.ensure_lookup_table()
+            for idx in indices:
+                if 0 <= idx < len(bm.faces):
+                    bm.faces[idx].select = True
+
+        bmesh.update_edit_mesh(obj.data)
+        bpy.ops.mesh.delete(type=delete_type)
+    finally:
+        bpy.ops.object.mode_set(mode='OBJECT')
+
+    result = {{
+        "object": obj.name,
+        "vertices_before": verts_before,
+        "vertices_after": len(obj.data.vertices),
+        "faces_before": faces_before,
+        "faces_after": len(obj.data.polygons),
+    }}
+"""
+    return _exec_json(code)
