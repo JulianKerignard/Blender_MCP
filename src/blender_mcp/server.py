@@ -72,14 +72,17 @@ def _exec_and_read_image(code: str) -> bytes | None:
         if isinstance(result, dict):
             output_path = result.get("output_path", "")
         else:
+            logger.warning("_exec_and_read_image: no result dict, got %s", type(result))
             return None
         if output_path and os.path.exists(output_path):
             with open(output_path, "rb") as f:
                 data = f.read()
-            os.unlink(output_path)  # Clean up temp file
+            os.unlink(output_path)
             return data
+        logger.warning("_exec_and_read_image: output_path not found: %s", output_path)
         return None
-    except (ConnectionError, RuntimeError):
+    except (ConnectionError, RuntimeError) as e:
+        logger.warning("_exec_and_read_image failed: %s", e)
         return None
 
 
@@ -107,6 +110,7 @@ def _register_tools():
         cursor,
         text,
         constraints,
+        noise,
         uv,
         curves,
         shader_nodes,

@@ -316,7 +316,7 @@ def render_preview(width: int = 480, height: int = 270, samples: int = 16) -> Im
         height: Image height in pixels. Default 270 for fast preview.
         samples: Number of render samples. Default 16 for speed.
     """
-    tmp_path = os.path.join(tempfile.gettempdir(), "blender_mcp_snapshot.png")
+    tmp_path = os.path.join(tempfile.gettempdir(), "blender_mcp_preview.png")
     code = f"""
 import bpy
 import tempfile
@@ -329,21 +329,30 @@ orig_engine = scene.render.engine
 orig_x = scene.render.resolution_x
 orig_y = scene.render.resolution_y
 orig_pct = scene.render.resolution_percentage
-orig_eevee_samples = scene.eevee.taa_render_samples
-orig_cycles_samples = scene.cycles.samples if scene.render.engine == 'CYCLES' else None
 
-# Temporarily switch to EEVEE for speed
-scene.render.engine = 'BLENDER_EEVEE_NEXT'
+# Detect EEVEE engine name (varies by Blender version)
+eevee_name = 'BLENDER_EEVEE_NEXT'
+if not hasattr(bpy.types, 'RENDER_PT_eevee_next_sampling'):
+    eevee_name = 'BLENDER_EEVEE'
 
-# Set low resolution and samples
+# Save samples for current engine
+try:
+    orig_eevee_samples = scene.eevee.taa_render_samples
+except:
+    orig_eevee_samples = 64
+
+# Switch to EEVEE for speed
+scene.render.engine = eevee_name
 scene.render.resolution_x = {width!r}
 scene.render.resolution_y = {height!r}
 scene.render.resolution_percentage = 100
-scene.eevee.taa_render_samples = {samples!r}
+
+try:
+    scene.eevee.taa_render_samples = {samples!r}
+except:
+    pass
 
 output_path = {tmp_path!r}
-
-# Ensure the directory exists
 out_dir = os.path.dirname(output_path)
 if out_dir:
     os.makedirs(out_dir, exist_ok=True)
@@ -351,7 +360,6 @@ if out_dir:
 scene.render.filepath = output_path
 scene.render.image_settings.file_format = "PNG"
 
-# Render
 bpy.ops.render.render(write_still=True)
 
 # Restore original settings
@@ -359,9 +367,10 @@ scene.render.engine = orig_engine
 scene.render.resolution_x = orig_x
 scene.render.resolution_y = orig_y
 scene.render.resolution_percentage = orig_pct
-scene.eevee.taa_render_samples = orig_eevee_samples
-if orig_cycles_samples is not None:
-    scene.cycles.samples = orig_cycles_samples
+try:
+    scene.eevee.taa_render_samples = orig_eevee_samples
+except:
+    pass
 
 result = {{
     "output_path": output_path,
