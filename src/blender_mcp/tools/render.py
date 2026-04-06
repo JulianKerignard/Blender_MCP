@@ -262,7 +262,6 @@ def get_scene_snapshot(width: int = 960, height: int = 540) -> Image:
         width: Image width in pixels. Default 960 for fast capture.
         height: Image height in pixels. Default 540 for fast capture.
     """
-    tmp_path = os.path.join(tempfile.gettempdir(), "blender_mcp_snapshot.png")
     code = f"""
 import bpy
 import tempfile
@@ -270,30 +269,22 @@ import os
 
 scene = bpy.context.scene
 
-# Save original resolution to restore later
 orig_x = scene.render.resolution_x
 orig_y = scene.render.resolution_y
 orig_pct = scene.render.resolution_percentage
 
-# Set viewport render resolution
 scene.render.resolution_x = {width!r}
 scene.render.resolution_y = {height!r}
 scene.render.resolution_percentage = 100
 
-output_path = {tmp_path!r}
-
-# Ensure the directory exists
-out_dir = os.path.dirname(output_path)
-if out_dir:
-    os.makedirs(out_dir, exist_ok=True)
+output_path = os.path.join(tempfile.gettempdir(), "blender_mcp_snapshot.png")
+os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
 scene.render.filepath = output_path
 scene.render.image_settings.file_format = "PNG"
 
-# Use OpenGL render for viewport capture
 bpy.ops.render.opengl(write_still=True)
 
-# Restore original resolution
 scene.render.resolution_x = orig_x
 scene.render.resolution_y = orig_y
 scene.render.resolution_percentage = orig_pct
@@ -319,36 +310,29 @@ def render_preview(width: int = 480, height: int = 270, samples: int = 16) -> Im
         height: Image height in pixels. Default 270 for fast preview.
         samples: Number of render samples. Default 16 for speed.
     """
-    tmp_path = os.path.join(tempfile.gettempdir(), "blender_mcp_preview.png")
     code = f"""
 import bpy
 import os
+import tempfile
 
 scene = bpy.context.scene
 
-# Save original render settings
-orig_engine = scene.render.engine
 orig_x = scene.render.resolution_x
 orig_y = scene.render.resolution_y
 orig_pct = scene.render.resolution_percentage
 
-# Use current engine (EEVEE is default and fast enough)
 scene.render.resolution_x = {width!r}
 scene.render.resolution_y = {height!r}
 scene.render.resolution_percentage = 100
 
-output_path = {tmp_path!r}
-out_dir = os.path.dirname(output_path)
-if out_dir:
-    os.makedirs(out_dir, exist_ok=True)
+output_path = os.path.join(tempfile.gettempdir(), "blender_mcp_preview.png")
+os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
 scene.render.filepath = output_path
 scene.render.image_settings.file_format = "PNG"
 
 bpy.ops.render.render(write_still=True)
 
-# Restore original settings
-scene.render.engine = orig_engine
 scene.render.resolution_x = orig_x
 scene.render.resolution_y = orig_y
 scene.render.resolution_percentage = orig_pct
