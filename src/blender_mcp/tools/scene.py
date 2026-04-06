@@ -550,14 +550,14 @@ else:
 def mirror_object(
     name: str,
     axis: str = "X",
-    copy: bool = True,
+    duplicate: bool = True,
 ) -> str:
     """Mirror an object along an axis.
 
     Args:
         name: Name of the object to mirror.
         axis: Axis to mirror across: X, Y, or Z.
-        copy: If True, duplicate the object first and mirror the copy.
+        duplicate: If True, duplicate the object first and mirror the copy.
     """
     ax = axis.strip().upper()
     if ax not in ("X", "Y", "Z"):
@@ -573,7 +573,7 @@ else:
     axis = {ax!r}
     axis_index = {{"X": 0, "Y": 1, "Z": 2}}[axis]
 
-    if {copy!r}:
+    if {duplicate!r}:
         new_obj = obj.copy()
         if obj.data:
             new_obj.data = obj.data.copy()
@@ -592,7 +592,7 @@ else:
     result = {{
         "mirrored_object": target.name,
         "axis": axis,
-        "is_copy": {copy!r},
+        "is_copy": {duplicate!r},
     }}
 """
     return _exec_json(code)
