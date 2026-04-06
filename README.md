@@ -12,11 +12,11 @@ MCP (Model Context Protocol) server for **Blender** -- allows AI assistants like
 ```
 
 - **Blender Addon**: Runs inside Blender, opens a TCP server, executes `bpy` commands
-- **MCP Server**: Standalone Python process exposing 72 tools to Claude via MCP protocol
+- **MCP Server**: Standalone Python process exposing 98 tools to Claude via MCP protocol
 
 ## Features
 
-- **72 MCP tools** across 17 categories
+- **98 MCP tools** across 17 categories
 - **Scene management**: list, inspect, select, delete, duplicate objects
 - **Modeling**: primitives, custom meshes, BMesh operations (extrude, bevel, inset, subdivide)
 - **Transforms**: position, rotation, scale (get/set/apply)

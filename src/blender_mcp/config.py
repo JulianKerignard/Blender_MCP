@@ -60,6 +60,12 @@ def save_config(config: dict[str, Any]) -> None:
     with open(config_path, "w") as f:
         json.dump(config, f, indent=2)
 
+    # Restrict permissions (owner read/write only) to protect API tokens
+    try:
+        os.chmod(config_path, 0o600)
+    except OSError:
+        pass  # Windows may not support chmod
+
     # Invalidate cache so next load_config picks up new values
     _cached_config = None
     _config_mtime = 0.0

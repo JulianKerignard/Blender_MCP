@@ -250,6 +250,9 @@ def sketchfab_download_import(uid: str, name: str = "") -> str:
         extract_dir.mkdir(parents=True, exist_ok=True)
 
         with zipfile.ZipFile(zip_path, "r") as zf:
+            for member in zf.namelist():
+                if member.startswith("/") or ".." in member:
+                    return _error_json(f"Unsafe path in ZIP archive: {member}")
             zf.extractall(extract_dir)
 
         # Clean up ZIP after successful extraction
