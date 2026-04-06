@@ -4,26 +4,28 @@ import json
 import os
 from pathlib import Path
 
-from blender_mcp.server import mcp, _exec
+from blender_mcp.server import mcp, _exec, _error_json
 
 
-# Mapping of file extensions to Blender import operators
+# Mapping of file extensions to Blender import operators.
+# Use {path} (unquoted) -- callers pass repr(normalized_path) so the
+# resulting code contains a safely-quoted string literal.
 IMPORT_OPERATORS = {
-    ".gltf": "bpy.ops.import_scene.gltf(filepath=\"{path}\")",
-    ".glb": "bpy.ops.import_scene.gltf(filepath=\"{path}\")",
-    ".fbx": "bpy.ops.import_scene.fbx(filepath=\"{path}\")",
-    ".obj": "bpy.ops.wm.obj_import(filepath=\"{path}\")",
-    ".stl": "bpy.ops.wm.stl_import(filepath=\"{path}\")",
-    ".ply": "bpy.ops.wm.ply_import(filepath=\"{path}\")",
+    ".gltf": "bpy.ops.import_scene.gltf(filepath={path})",
+    ".glb": "bpy.ops.import_scene.gltf(filepath={path})",
+    ".fbx": "bpy.ops.import_scene.fbx(filepath={path})",
+    ".obj": "bpy.ops.wm.obj_import(filepath={path})",
+    ".stl": "bpy.ops.wm.stl_import(filepath={path})",
+    ".ply": "bpy.ops.wm.ply_import(filepath={path})",
 }
 
-# Mapping of file extensions to Blender export operators
+# Mapping of file extensions to Blender export operators.
 EXPORT_OPERATORS = {
-    ".gltf": "bpy.ops.export_scene.gltf(filepath=\"{path}\", export_format='GLTF_SEPARATE'{selected})",
-    ".glb": "bpy.ops.export_scene.gltf(filepath=\"{path}\", export_format='GLB'{selected})",
-    ".fbx": "bpy.ops.export_scene.fbx(filepath=\"{path}\"{selected})",
-    ".obj": "bpy.ops.wm.obj_export(filepath=\"{path}\"{selected})",
-    ".stl": "bpy.ops.wm.stl_export(filepath=\"{path}\"{selected})",
+    ".gltf": "bpy.ops.export_scene.gltf(filepath={path}, export_format='GLTF_SEPARATE'{selected})",
+    ".glb": "bpy.ops.export_scene.gltf(filepath={path}, export_format='GLB'{selected})",
+    ".fbx": "bpy.ops.export_scene.fbx(filepath={path}{selected})",
+    ".obj": "bpy.ops.wm.obj_export(filepath={path}{selected})",
+    ".stl": "bpy.ops.wm.stl_export(filepath={path}{selected})",
 }
 
 SUPPORTED_IMPORT_TYPES = list(IMPORT_OPERATORS.keys())
@@ -64,7 +66,7 @@ def import_model(file_path: str, file_type: str = "") -> str:
         # Normalize path: use forward slashes for Blender/Python compatibility
         normalized_path = file_path.replace("\\", "/")
 
-        import_call = IMPORT_OPERATORS[ext].format(path=normalized_path)
+        import_call = IMPORT_OPERATORS[ext].format(path=repr(normalized_path))
 
         code = f"""
 import bpy
@@ -99,7 +101,7 @@ result = {{
         return json.dumps(output, indent=2)
 
     except Exception as e:
-        return json.dumps({"error": str(e)}, indent=2)
+        return _error_json(str(e))
 
 
 @mcp.tool()
@@ -147,19 +149,19 @@ def export_model(
             selected_param = ""
 
         export_call = EXPORT_OPERATORS[ext].format(
-            path=normalized_path,
+            path=repr(normalized_path),
             selected=selected_param,
         )
 
         # Ensure the output directory exists
-        output_dir = str(Path(file_path).parent).replace("\\", "/")
+        output_dir = repr(str(Path(file_path).parent).replace("\\", "/"))
 
         code = f"""
 import bpy
 import os
 
 # Ensure output directory exists
-os.makedirs("{output_dir}", exist_ok=True)
+os.makedirs({output_dir}, exist_ok=True)
 
 # Run the export
 {export_call}
@@ -182,4 +184,4 @@ result = {{
         return json.dumps(output, indent=2)
 
     except Exception as e:
-        return json.dumps({"error": str(e)}, indent=2)
+        return _error_json(str(e))

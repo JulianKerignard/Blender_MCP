@@ -1,6 +1,6 @@
 """Code execution and utility tools."""
 
-from blender_mcp.server import mcp, _exec
+from blender_mcp.server import mcp, _exec_json
 
 
 @mcp.tool()
@@ -16,9 +16,7 @@ def execute_blender_code(code: str) -> str:
     Returns:
         The result of the execution, including any value from the 'result' variable if set.
     """
-    import json
-    result = _exec(code)
-    return json.dumps(result, indent=2)
+    return _exec_json(code)
 
 
 @mcp.tool()
@@ -27,7 +25,6 @@ def get_blender_info() -> str:
 
     Returns Blender version, active scene, renderer, and available addons.
     """
-    import json
     code = """
 import bpy
 import sys
@@ -43,13 +40,10 @@ result = {
     "material_count": len(bpy.data.materials),
 }
 """
-    result = _exec(code)
-    return json.dumps(result, indent=2)
+    return _exec_json(code)
 
 
 @mcp.tool()
 def undo() -> str:
     """Undo the last operation in Blender."""
-    import json
-    result = _exec("import bpy; bpy.ops.ed.undo()")
-    return json.dumps(result, indent=2)
+    return _exec_json("import bpy; bpy.ops.ed.undo()")

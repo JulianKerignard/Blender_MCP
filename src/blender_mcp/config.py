@@ -13,6 +13,10 @@ DEFAULT_CONFIG = {
     "download_dir": "",
 }
 
+# Module-level config cache with mtime-based invalidation
+_cached_config: dict[str, Any] | None = None
+_config_mtime: float = 0.0
+
 
 def get_config_path() -> Path:
     """Get the config file path."""
@@ -22,10 +26,19 @@ def get_config_path() -> Path:
 
 
 def load_config() -> dict[str, Any]:
-    """Load configuration from file, with defaults."""
-    config = dict(DEFAULT_CONFIG)
-    config_path = get_config_path()
+    """Load configuration from file, with defaults. Cached by file mtime."""
+    global _cached_config, _config_mtime
 
+    config_path = get_config_path()
+    try:
+        mtime = config_path.stat().st_mtime
+    except OSError:
+        mtime = 0.0
+
+    if _cached_config is not None and mtime == _config_mtime:
+        return dict(_cached_config)
+
+    config = dict(DEFAULT_CONFIG)
     if config_path.exists():
         try:
             with open(config_path) as f:
@@ -34,34 +47,47 @@ def load_config() -> dict[str, Any]:
         except (json.JSONDecodeError, OSError):
             pass
 
-    return config
+    _cached_config = config
+    _config_mtime = mtime
+    return dict(config)
 
 
 def save_config(config: dict[str, Any]) -> None:
-    """Save configuration to file."""
+    """Save configuration to file and invalidate cache."""
+    global _cached_config, _config_mtime
+
     config_path = get_config_path()
     with open(config_path, "w") as f:
         json.dump(config, f, indent=2)
 
+    # Invalidate cache so next load_config picks up new values
+    _cached_config = None
+    _config_mtime = 0.0
 
-def get_sketchfab_token() -> str:
-    """Get SketchFab API token from config or environment.
 
-    Priority:
-    1. Environment variable SKETCHFAB_API_TOKEN
-    2. Config file
+def get_sketchfab_token(config: dict[str, Any] | None = None) -> str:
+    """Get SketchFab API token from environment or config.
+
+    Args:
+        config: Pre-loaded config dict to avoid redundant disk reads.
     """
     env_token = os.environ.get("SKETCHFAB_API_TOKEN", "")
     if env_token:
         return env_token
 
-    config = load_config()
+    if config is None:
+        config = load_config()
     return config.get("sketchfab_api_token", "")
 
 
-def get_download_dir() -> Path:
-    """Get the download directory for 3D assets."""
-    config = load_config()
+def get_download_dir(config: dict[str, Any] | None = None) -> Path:
+    """Get the download directory for 3D assets.
+
+    Args:
+        config: Pre-loaded config dict to avoid redundant disk reads.
+    """
+    if config is None:
+        config = load_config()
     download_dir = config.get("download_dir", "")
 
     if download_dir:

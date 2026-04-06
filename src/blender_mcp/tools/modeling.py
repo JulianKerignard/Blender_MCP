@@ -1,8 +1,6 @@
 """Modeling tools for creating and editing meshes in Blender."""
 
-import json
-
-from blender_mcp.server import mcp, _exec
+from blender_mcp.server import mcp, _exec_json, _error_json
 
 
 @mcp.tool()
@@ -102,8 +100,7 @@ result = {
     "face_count": len(obj.data.polygons),
 }
 """
-    result = _exec(code)
-    return json.dumps(result, indent=2)
+    return _exec_json(code)
 
 
 @mcp.tool()
@@ -152,8 +149,7 @@ result = {{
     "location": list(obj.location),
 }}
 """
-    result = _exec(code)
-    return json.dumps(result, indent=2)
+    return _exec_json(code)
 
 
 @mcp.tool()
@@ -360,10 +356,9 @@ result = {{
 }}
 """
     else:
-        return json.dumps({"error": f"Unknown operation: {operation}"}, indent=2)
+        return _error_json(f"Unknown operation: {operation}")
 
-    result = _exec(code)
-    return json.dumps(result, indent=2)
+    return _exec_json(code)
 
 
 @mcp.tool()
@@ -406,8 +401,7 @@ result = {{
     "joined_count": len(names),
 }}
 """
-    result = _exec(code)
-    return json.dumps(result, indent=2)
+    return _exec_json(code)
 
 
 @mcp.tool()
@@ -448,8 +442,7 @@ result = {{
     "count": len(separated),
 }}
 """
-    result = _exec(code)
-    return json.dumps(result, indent=2)
+    return _exec_json(code)
 
 
 @mcp.tool()
@@ -484,8 +477,7 @@ result = {{
     "location": list(obj.location),
 }}
 """
-    result = _exec(code)
-    return json.dumps(result, indent=2)
+    return _exec_json(code)
 
 
 @mcp.tool()
@@ -515,5 +507,4 @@ result = {{
     "shading": "{'smooth' if smooth else 'flat'}",
 }}
 """
-    result = _exec(code)
-    return json.dumps(result, indent=2)
+    return _exec_json(code)

@@ -28,14 +28,15 @@ from contextlib import redirect_stdout, redirect_stderr
 class BlenderMCPServer:
     """TCP server running inside Blender to receive and execute commands."""
 
+    _EXEC_GLOBALS: dict | None = None
+
     def __init__(self):
         self.server_socket: socket.socket | None = None
         self.client_socket: socket.socket | None = None
         self.running = False
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
-        self._pending_commands: list[tuple[str, dict]] = []
-        self._pending_results: list[dict] = []
+        self._pending_commands: list = []
 
     def start(self, host: str = "127.0.0.1", port: int = 9876):
         """Start the TCP server in a background thread."""
@@ -109,20 +110,15 @@ class BlenderMCPServer:
                 command = request.get("command", "")
                 params = request.get("params", {})
 
-                # Queue command for main thread execution
+                # Queue command for main thread execution with per-request result holder
                 event = threading.Event()
+                result_holder: dict = {}
                 with self._lock:
-                    self._pending_commands.append((command, params, event, client))
+                    self._pending_commands.append((command, params, event, result_holder))
 
                 # Wait for result (processed on main thread via timer)
                 event.wait(timeout=60.0)
-
-                # Get the result
-                with self._lock:
-                    if self._pending_results:
-                        result = self._pending_results.pop(0)
-                    else:
-                        result = {"status": "error", "message": "Timeout waiting for execution"}
+                result = result_holder.get("result", {"status": "error", "message": "Timeout waiting for execution"})
 
                 # Send response
                 response_data = json.dumps(result).encode("utf-8")
@@ -149,16 +145,18 @@ class BlenderMCPServer:
 
     def _recv_exact(self, sock: socket.socket, n: int) -> bytes | None:
         """Receive exactly n bytes."""
-        data = b""
-        while len(data) < n:
+        chunks = []
+        received = 0
+        while received < n:
             try:
-                chunk = sock.recv(n - len(data))
+                chunk = sock.recv(n - received)
                 if not chunk:
                     return None
-                data += chunk
+                chunks.append(chunk)
+                received += len(chunk)
             except OSError:
                 return None
-        return data
+        return b"".join(chunks)
 
     def _process_commands(self) -> float | None:
         """Process pending commands on the main thread (called by timer)."""
@@ -169,13 +167,15 @@ class BlenderMCPServer:
             commands = list(self._pending_commands)
             self._pending_commands.clear()
 
-        for command, params, event, client in commands:
+        if not commands:
+            return 0.25  # Idle: check 4 times/second
+
+        for command, params, event, result_holder in commands:
             result = self._execute_command(command, params)
-            with self._lock:
-                self._pending_results.append(result)
+            result_holder["result"] = result
             event.set()
 
-        return 0.05  # Check every 50ms
+        return 0.05  # Active: stay responsive
 
     def _execute_command(self, command: str, params: dict) -> dict:
         """Execute a command in Blender's main thread."""
@@ -186,6 +186,18 @@ class BlenderMCPServer:
         else:
             return {"status": "error", "message": f"Unknown command: {command}"}
 
+    def _get_exec_globals(self) -> dict:
+        """Get pre-populated globals dict for exec(), avoiding repeated imports."""
+        if BlenderMCPServer._EXEC_GLOBALS is None:
+            import math
+            BlenderMCPServer._EXEC_GLOBALS = {
+                "__builtins__": __builtins__,
+                "bpy": bpy,
+                "math": math,
+                "json": json,
+            }
+        return BlenderMCPServer._EXEC_GLOBALS
+
     def _execute_code(self, code: str) -> dict:
         """Execute Python code in Blender and return the result."""
         stdout_capture = io.StringIO()
@@ -195,20 +207,13 @@ class BlenderMCPServer:
 
         try:
             with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
-                exec(code, {"__builtins__": __builtins__}, local_vars)
+                exec(code, self._get_exec_globals(), local_vars)
 
             result_data = local_vars.get("result", None)
 
-            # Try to serialize result
-            try:
-                json.dumps(result_data)
-                serializable_result = result_data
-            except (TypeError, ValueError):
-                serializable_result = str(result_data) if result_data is not None else None
-
             response = {"status": "ok"}
-            if serializable_result is not None:
-                response["result"] = serializable_result
+            if result_data is not None:
+                response["result"] = result_data
 
             stdout_val = stdout_capture.getvalue()
             if stdout_val:
@@ -217,6 +222,13 @@ class BlenderMCPServer:
             stderr_val = stderr_capture.getvalue()
             if stderr_val:
                 response["stderr"] = stderr_val
+
+            # Validate the whole response is serializable in one pass
+            try:
+                json.dumps(response)
+            except (TypeError, ValueError):
+                if result_data is not None:
+                    response["result"] = str(result_data)
 
             return response
 

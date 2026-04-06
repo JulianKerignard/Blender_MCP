@@ -1,8 +1,6 @@
 """Transform tools for positioning, rotating, and scaling objects."""
 
-import json
-
-from blender_mcp.server import mcp, _exec
+from blender_mcp.server import mcp, _exec_json
 
 
 @mcp.tool()
@@ -27,9 +25,9 @@ def set_transform(
 import bpy
 import math
 
-obj = bpy.data.objects.get("{name}")
+obj = bpy.data.objects.get({name!r})
 if obj is None:
-    result = {{"error": "Object '{name}' not found"}}
+    result = {{"error": "Object " + {name!r} + " not found"}}
 else:
     location = {location!r}
     rotation = {rotation!r}
@@ -49,8 +47,7 @@ else:
         "scale": list(obj.scale),
     }}
 """
-    result = _exec(code)
-    return json.dumps(result, indent=2)
+    return _exec_json(code)
 
 
 @mcp.tool()
@@ -66,9 +63,9 @@ def get_transform(name: str) -> str:
 import bpy
 import math
 
-obj = bpy.data.objects.get("{name}")
+obj = bpy.data.objects.get({name!r})
 if obj is None:
-    result = {{"error": "Object '{name}' not found"}}
+    result = {{"error": "Object " + {name!r} + " not found"}}
 else:
     result = {{
         "name": obj.name,
@@ -77,8 +74,7 @@ else:
         "scale": list(obj.scale),
     }}
 """
-    result = _exec(code)
-    return json.dumps(result, indent=2)
+    return _exec_json(code)
 
 
 @mcp.tool()
@@ -102,9 +98,9 @@ def apply_transform(
     code = f"""
 import bpy
 
-obj = bpy.data.objects.get("{name}")
+obj = bpy.data.objects.get({name!r})
 if obj is None:
-    result = {{"error": "Object '{name}' not found"}}
+    result = {{"error": "Object " + {name!r} + " not found"}}
 else:
     # Select only this object so the operator acts on it
     bpy.ops.object.select_all(action='DESELECT')
@@ -129,5 +125,4 @@ else:
         "new_scale": list(obj.scale),
     }}
 """
-    result = _exec(code)
-    return json.dumps(result, indent=2)
+    return _exec_json(code)

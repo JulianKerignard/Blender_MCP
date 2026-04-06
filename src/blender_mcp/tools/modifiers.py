@@ -1,8 +1,20 @@
 """Modifier tools for adding and managing Blender modifiers."""
 
-import json
+from blender_mcp.server import mcp, _exec_json
 
-from blender_mcp.server import mcp, _exec
+_COLLECT_MOD_PROPS = """
+mod_props = {}
+for prop in mod.bl_rna.properties:
+    if prop.identifier in ('rna_type',):
+        continue
+    try:
+        val = getattr(mod, prop.identifier)
+        if hasattr(val, '__iter__') and not isinstance(val, str):
+            val = list(val)
+        mod_props[prop.identifier] = val
+    except Exception:
+        pass
+"""
 
 
 @mcp.tool()
@@ -50,21 +62,9 @@ except (AttributeError, TypeError):
     pass
 """
 
-    code += """
-# Collect modifier properties for the result
-mod_props = {}
-for prop in mod.bl_rna.properties:
-    if prop.identifier in ('rna_type',):
-        continue
-    try:
-        val = getattr(mod, prop.identifier)
-        # Convert non-serializable types
-        if hasattr(val, '__iter__') and not isinstance(val, str):
-            val = list(val)
-        mod_props[prop.identifier] = val
-    except Exception:
-        pass
+    code += _COLLECT_MOD_PROPS
 
+    code += """
 result = {
     "object": obj.name,
     "modifier_name": mod.name,
@@ -72,8 +72,7 @@ result = {
     "properties": mod_props,
 }
 """
-    result = _exec(code)
-    return json.dumps(result, indent=2)
+    return _exec_json(code)
 
 
 @mcp.tool()
@@ -107,20 +106,9 @@ except (AttributeError, TypeError):
     mod[{key!r}] = {value!r}
 """
 
-    code += """
-# Collect modifier properties for the result
-mod_props = {}
-for prop in mod.bl_rna.properties:
-    if prop.identifier in ('rna_type',):
-        continue
-    try:
-        val = getattr(mod, prop.identifier)
-        if hasattr(val, '__iter__') and not isinstance(val, str):
-            val = list(val)
-        mod_props[prop.identifier] = val
-    except Exception:
-        pass
+    code += _COLLECT_MOD_PROPS
 
+    code += """
 result = {
     "object": obj.name,
     "modifier_name": mod.name,
@@ -128,8 +116,7 @@ result = {
     "properties": mod_props,
 }
 """
-    result = _exec(code)
-    return json.dumps(result, indent=2)
+    return _exec_json(code)
 
 
 @mcp.tool()
@@ -171,5 +158,4 @@ result = {{
     "remaining_modifiers": remaining_modifiers,
 }}
 """
-    result = _exec(code)
-    return json.dumps(result, indent=2)
+    return _exec_json(code)

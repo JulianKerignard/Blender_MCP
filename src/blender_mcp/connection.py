@@ -46,13 +46,15 @@ class BlenderConnection:
 
     def _recv_exact(self, n: int) -> bytes:
         """Receive exactly n bytes."""
-        data = b""
-        while len(data) < n:
-            chunk = self._socket.recv(n - len(data))
+        chunks = []
+        received = 0
+        while received < n:
+            chunk = self._socket.recv(n - received)
             if not chunk:
                 raise ConnectionError("Connection closed by Blender")
-            data += chunk
-        return data
+            chunks.append(chunk)
+            received += len(chunk)
+        return b"".join(chunks)
 
     def send_command(self, command: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         """Send a command to Blender and return the response.

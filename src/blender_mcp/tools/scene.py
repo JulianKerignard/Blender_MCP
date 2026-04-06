@@ -1,8 +1,6 @@
 """Scene management tools."""
 
-import json
-
-from blender_mcp.server import mcp, _exec
+from blender_mcp.server import mcp, _exec_json
 
 
 @mcp.tool()
@@ -54,8 +52,7 @@ result = {
     "object_counts_by_type": type_counts,
 }
 """
-    result = _exec(code)
-    return json.dumps(result, indent=2)
+    return _exec_json(code)
 
 
 @mcp.tool()
@@ -72,7 +69,7 @@ def list_objects(object_type: str = "") -> str:
     code = f"""
 import bpy
 
-filter_type = "{object_type}".strip().upper()
+filter_type = {object_type!r}.strip().upper()
 objects = []
 for obj in bpy.context.scene.objects:
     if filter_type and obj.type != filter_type:
@@ -87,8 +84,7 @@ for obj in bpy.context.scene.objects:
 
 result = objects
 """
-    result = _exec(code)
-    return json.dumps(result, indent=2)
+    return _exec_json(code)
 
 
 @mcp.tool()
@@ -105,9 +101,9 @@ def get_object_info(name: str) -> str:
 import bpy
 import math
 
-obj = bpy.data.objects.get("{name}")
+obj = bpy.data.objects.get({name!r})
 if obj is None:
-    result = {{"error": "Object '{name}' not found"}}
+    result = {{"error": "Object " + {name!r} + " not found"}}
 else:
     info = {{
         "name": obj.name,
@@ -151,8 +147,7 @@ else:
 
     result = info
 """
-    result = _exec(code)
-    return json.dumps(result, indent=2)
+    return _exec_json(code)
 
 
 @mcp.tool()
@@ -195,8 +190,7 @@ result = {{
     "active": selected[0] if selected else None,
 }}
 """
-    result = _exec(code)
-    return json.dumps(result, indent=2)
+    return _exec_json(code)
 
 
 @mcp.tool()
@@ -226,8 +220,7 @@ result = {{
     "not_found": not_found,
 }}
 """
-    result = _exec(code)
-    return json.dumps(result, indent=2)
+    return _exec_json(code)
 
 
 @mcp.tool()
@@ -242,9 +235,9 @@ def duplicate_object(name: str, linked: bool = False, new_name: str = "") -> str
     code = f"""
 import bpy
 
-src = bpy.data.objects.get("{name}")
+src = bpy.data.objects.get({name!r})
 if src is None:
-    result = {{"error": "Object '{name}' not found"}}
+    result = {{"error": "Object " + {name!r} + " not found"}}
 else:
     if {linked!r}:
         new_obj = src.copy()
@@ -255,7 +248,7 @@ else:
 
     bpy.context.collection.objects.link(new_obj)
 
-    requested_name = "{new_name}"
+    requested_name = {new_name!r}
     if requested_name:
         new_obj.name = requested_name
 
@@ -265,5 +258,4 @@ else:
         "linked": {linked!r},
     }}
 """
-    result = _exec(code)
-    return json.dumps(result, indent=2)
+    return _exec_json(code)

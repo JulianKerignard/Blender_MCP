@@ -9,7 +9,7 @@ from pathlib import Path
 
 import httpx
 
-from blender_mcp.server import mcp, _exec
+from blender_mcp.server import mcp, _exec, _error_json
 from blender_mcp.config import (
     get_sketchfab_token,
     get_download_dir,
@@ -20,6 +20,16 @@ from blender_mcp.config import (
 logger = logging.getLogger(__name__)
 
 SKETCHFAB_API = "https://api.sketchfab.com/v3"
+
+# Module-level cached HTTP client (reused across calls)
+_http_client: httpx.Client | None = None
+
+
+def _get_http_client(timeout: int = 30) -> httpx.Client:
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.Client(timeout=timeout, follow_redirects=True)
+    return _http_client
 
 
 def _auth_headers() -> dict[str, str]:
@@ -55,14 +65,14 @@ def sketchfab_search(
         if categories.strip():
             params["categories"] = categories.strip()
 
-        with httpx.Client(timeout=30) as client:
-            resp = client.get(
-                f"{SKETCHFAB_API}/search",
-                params=params,
-                headers=_auth_headers(),
-            )
-            resp.raise_for_status()
-            data = resp.json()
+        client = _get_http_client()
+        resp = client.get(
+            f"{SKETCHFAB_API}/search",
+            params=params,
+            headers=_auth_headers(),
+        )
+        resp.raise_for_status()
+        data = resp.json()
 
         models = []
         for item in data.get("results", []):
@@ -101,9 +111,9 @@ def sketchfab_search(
         return json.dumps(result, indent=2)
 
     except httpx.HTTPStatusError as e:
-        return json.dumps({"error": f"HTTP {e.response.status_code}: {e.response.text}"}, indent=2)
+        return _error_json(f"HTTP {e.response.status_code}: {e.response.text}")
     except Exception as e:
-        return json.dumps({"error": str(e)}, indent=2)
+        return _error_json(str(e))
 
 
 @mcp.tool()
@@ -114,13 +124,13 @@ def sketchfab_get_model(uid: str) -> str:
         uid: The unique identifier of the SketchFab model.
     """
     try:
-        with httpx.Client(timeout=30) as client:
-            resp = client.get(
-                f"{SKETCHFAB_API}/models/{uid}",
-                headers=_auth_headers(),
-            )
-            resp.raise_for_status()
-            data = resp.json()
+        client = _get_http_client()
+        resp = client.get(
+            f"{SKETCHFAB_API}/models/{uid}",
+            headers=_auth_headers(),
+        )
+        resp.raise_for_status()
+        data = resp.json()
 
         # Extract available formats
         formats = {}
@@ -163,9 +173,9 @@ def sketchfab_get_model(uid: str) -> str:
         return json.dumps(result, indent=2)
 
     except httpx.HTTPStatusError as e:
-        return json.dumps({"error": f"HTTP {e.response.status_code}: {e.response.text}"}, indent=2)
+        return _error_json(f"HTTP {e.response.status_code}: {e.response.text}")
     except Exception as e:
-        return json.dumps({"error": str(e)}, indent=2)
+        return _error_json(str(e))
 
 
 @mcp.tool()
@@ -180,28 +190,29 @@ def sketchfab_download_import(uid: str, name: str = "") -> str:
         name: Optional name to give the imported objects in Blender.
     """
     try:
-        token = get_sketchfab_token()
+        config = load_config()
+        token = get_sketchfab_token(config)
         if not token:
-            return json.dumps({
-                "error": "No SketchFab API token configured. "
-                         "Use sketchfab_configure to set your token, or set "
-                         "the SKETCHFAB_API_TOKEN environment variable."
-            }, indent=2)
+            return _error_json(
+                "No SketchFab API token configured. "
+                "Use sketchfab_configure to set your token, or set "
+                "the SKETCHFAB_API_TOKEN environment variable."
+            )
 
         headers = {"Authorization": f"Token {token}"}
 
         # Step 1: Request download URL
-        with httpx.Client(timeout=30) as client:
-            resp = client.get(
-                f"{SKETCHFAB_API}/models/{uid}/download",
-                headers=headers,
-            )
-            if resp.status_code == 401:
-                return json.dumps({"error": "Authentication failed. Check your API token."}, indent=2)
-            if resp.status_code == 403:
-                return json.dumps({"error": "Download not permitted for this model. It may not be downloadable."}, indent=2)
-            resp.raise_for_status()
-            download_data = resp.json()
+        client = _get_http_client()
+        resp = client.get(
+            f"{SKETCHFAB_API}/models/{uid}/download",
+            headers=headers,
+        )
+        if resp.status_code == 401:
+            return _error_json("Authentication failed. Check your API token.")
+        if resp.status_code == 403:
+            return _error_json("Download not permitted for this model. It may not be downloadable.")
+        resp.raise_for_status()
+        download_data = resp.json()
 
         # Get the glTF download URL (prefer gltf over other formats)
         download_url = None
@@ -219,13 +230,13 @@ def sketchfab_download_import(uid: str, name: str = "") -> str:
             }, indent=2)
 
         # Step 2: Download the ZIP archive
-        download_dir = get_download_dir()
+        download_dir = get_download_dir(config)
         model_dir = download_dir / uid
         model_dir.mkdir(parents=True, exist_ok=True)
 
         zip_path = model_dir / "model.zip"
-        with httpx.Client(timeout=120, follow_redirects=True) as client:
-            with client.stream("GET", download_url) as stream:
+        with httpx.Client(timeout=120, follow_redirects=True) as stream_client:
+            with stream_client.stream("GET", download_url) as stream:
                 stream.raise_for_status()
                 with open(zip_path, "wb") as f:
                     for chunk in stream.iter_bytes(chunk_size=8192):
@@ -240,6 +251,9 @@ def sketchfab_download_import(uid: str, name: str = "") -> str:
 
         with zipfile.ZipFile(zip_path, "r") as zf:
             zf.extractall(extract_dir)
+
+        # Clean up ZIP after successful extraction
+        zip_path.unlink(missing_ok=True)
 
         # Step 4: Find the glTF/GLB file
         gltf_file = None
@@ -268,14 +282,14 @@ import bpy
 before = set(obj.name for obj in bpy.data.objects)
 
 # Import glTF
-bpy.ops.import_scene.gltf(filepath="{import_path}")
+bpy.ops.import_scene.gltf(filepath={import_path!r})
 
 # Find newly imported objects
 after = set(obj.name for obj in bpy.data.objects)
 new_objects = list(after - before)
 
 # Optionally rename imported objects
-rename_to = "{rename_to}"
+rename_to = {rename_to!r}
 if rename_to and new_objects:
     # Rename root-level imported objects (those without a parent among new objects)
     new_obj_set = set(new_objects)
@@ -311,11 +325,11 @@ result = {{
         return json.dumps(result, indent=2)
 
     except httpx.HTTPStatusError as e:
-        return json.dumps({"error": f"HTTP {e.response.status_code}: {e.response.text}"}, indent=2)
+        return _error_json(f"HTTP {e.response.status_code}: {e.response.text}")
     except zipfile.BadZipFile:
-        return json.dumps({"error": "Downloaded file is not a valid ZIP archive."}, indent=2)
+        return _error_json("Downloaded file is not a valid ZIP archive.")
     except Exception as e:
-        return json.dumps({"error": str(e)}, indent=2)
+        return _error_json(str(e))
 
 
 @mcp.tool()
@@ -341,8 +355,8 @@ def sketchfab_configure(api_token: str = "", download_dir: str = "") -> str:
             save_config(config)
 
         # Report current status
-        current_token = get_sketchfab_token()
-        current_dir = get_download_dir()
+        current_token = os.environ.get("SKETCHFAB_API_TOKEN", "") or config.get("sketchfab_api_token", "")
+        current_dir = get_download_dir(config)
 
         result = {
             "token_set": bool(current_token),
@@ -356,4 +370,4 @@ def sketchfab_configure(api_token: str = "", download_dir: str = "") -> str:
         return json.dumps(result, indent=2)
 
     except Exception as e:
-        return json.dumps({"error": str(e)}, indent=2)
+        return _error_json(str(e))

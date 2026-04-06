@@ -1,8 +1,6 @@
 """Material management tools."""
 
-import json
-
-from blender_mcp.server import mcp, _exec
+from blender_mcp.server import mcp, _exec_json
 
 
 @mcp.tool()
@@ -79,8 +77,7 @@ result = {{
     "alpha": {alpha!r},
 }}
 """
-    result = _exec(code)
-    return json.dumps(result, indent=2)
+    return _exec_json(code)
 
 
 @mcp.tool()
@@ -129,8 +126,7 @@ else:
         "total_slots": len(obj.material_slots),
     }}
 """
-    result = _exec(code)
-    return json.dumps(result, indent=2)
+    return _exec_json(code)
 
 
 @mcp.tool()
@@ -215,8 +211,7 @@ else:
             "updated_properties": updated,
         }}
 """
-    result = _exec(code)
-    return json.dumps(result, indent=2)
+    return _exec_json(code)
 
 
 @mcp.tool()
@@ -255,8 +250,7 @@ for mat in bpy.data.materials:
 
 result = materials
 """
-    result = _exec(code)
-    return json.dumps(result, indent=2)
+    return _exec_json(code)
 
 
 @mcp.tool()
@@ -362,5 +356,4 @@ else:
                 "image_size": list(img.size),
             }}
 """
-    result = _exec(code)
-    return json.dumps(result, indent=2)
+    return _exec_json(code)
