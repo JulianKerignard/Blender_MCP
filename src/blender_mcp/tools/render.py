@@ -41,7 +41,7 @@ def render_image(
         resolution_x: Horizontal resolution in pixels.
         resolution_y: Vertical resolution in pixels.
         samples: Number of render samples.
-        engine: Render engine (BLENDER_EEVEE_NEXT, CYCLES, BLENDER_WORKBENCH).
+        engine: Render engine (BLENDER_EEVEE, CYCLES, BLENDER_WORKBENCH).
                 Leave empty to keep the current engine.
         return_image: If True, return the rendered image inline instead of the file path JSON.
     """
@@ -61,11 +61,14 @@ if engine:
 scene.render.resolution_x = {resolution_x!r}
 scene.render.resolution_y = {resolution_y!r}
 
-# Set samples
+# Set samples based on engine
 if scene.render.engine == 'CYCLES':
     scene.cycles.samples = {samples!r}
-elif scene.render.engine == 'BLENDER_EEVEE_NEXT':
-    scene.eevee.taa_render_samples = {samples!r}
+else:
+    try:
+        scene.eevee.taa_render_samples = {samples!r}
+    except AttributeError:
+        pass
 
 # Determine output path
 output_path = {output_path!r}.strip()
@@ -116,7 +119,7 @@ def set_render_settings(
     Only non-None values are applied.
 
     Args:
-        engine: Render engine: BLENDER_EEVEE_NEXT, CYCLES, or BLENDER_WORKBENCH.
+        engine: Render engine: BLENDER_EEVEE, CYCLES, or BLENDER_WORKBENCH.
                 Leave empty to keep the current engine.
         resolution_x: Horizontal resolution in pixels.
         resolution_y: Vertical resolution in pixels.
@@ -152,7 +155,7 @@ samples = {samples!r}
 if samples is not None:
     if scene.render.engine == 'CYCLES':
         scene.cycles.samples = samples
-    elif scene.render.engine == 'BLENDER_EEVEE_NEXT':
+    elif scene.render.engine == 'BLENDER_EEVEE':
         scene.eevee.taa_render_samples = samples
     updated.append("samples")
 
@@ -161,7 +164,7 @@ use_denoising = {use_denoising!r}
 if use_denoising is not None:
     if scene.render.engine == 'CYCLES':
         scene.cycles.use_denoising = use_denoising
-    elif scene.render.engine == 'BLENDER_EEVEE_NEXT':
+    elif scene.render.engine == 'BLENDER_EEVEE':
         scene.eevee.use_gtao = use_denoising  # closest EEVEE equivalent
     updated.append("use_denoising")
 
@@ -319,7 +322,6 @@ def render_preview(width: int = 480, height: int = 270, samples: int = 16) -> Im
     tmp_path = os.path.join(tempfile.gettempdir(), "blender_mcp_preview.png")
     code = f"""
 import bpy
-import tempfile
 import os
 
 scene = bpy.context.scene
@@ -330,27 +332,10 @@ orig_x = scene.render.resolution_x
 orig_y = scene.render.resolution_y
 orig_pct = scene.render.resolution_percentage
 
-# Detect EEVEE engine name (varies by Blender version)
-eevee_name = 'BLENDER_EEVEE_NEXT'
-if not hasattr(bpy.types, 'RENDER_PT_eevee_next_sampling'):
-    eevee_name = 'BLENDER_EEVEE'
-
-# Save samples for current engine
-try:
-    orig_eevee_samples = scene.eevee.taa_render_samples
-except:
-    orig_eevee_samples = 64
-
-# Switch to EEVEE for speed
-scene.render.engine = eevee_name
+# Use current engine (EEVEE is default and fast enough)
 scene.render.resolution_x = {width!r}
 scene.render.resolution_y = {height!r}
 scene.render.resolution_percentage = 100
-
-try:
-    scene.eevee.taa_render_samples = {samples!r}
-except:
-    pass
 
 output_path = {tmp_path!r}
 out_dir = os.path.dirname(output_path)
@@ -367,10 +352,6 @@ scene.render.engine = orig_engine
 scene.render.resolution_x = orig_x
 scene.render.resolution_y = orig_y
 scene.render.resolution_percentage = orig_pct
-try:
-    scene.eevee.taa_render_samples = orig_eevee_samples
-except:
-    pass
 
 result = {{
     "output_path": output_path,
