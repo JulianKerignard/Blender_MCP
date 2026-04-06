@@ -1,6 +1,11 @@
 """UV mapping tools for unwrapping and managing UV layers in Blender."""
 
-from blender_mcp.server import mcp, _exec_json, _error_json
+import os
+import tempfile
+
+from mcp.server.fastmcp import Image
+
+from blender_mcp.server import mcp, _exec, _exec_json, _error_json, _exec_and_read_image
 
 UV_UNWRAP_METHODS = ("smart_project", "unwrap", "cube_project", "cylinder_project", "sphere_project")
 
@@ -539,3 +544,113 @@ else:
     }}
 """
     return _exec_json(code)
+
+
+@mcp.tool()
+def reset_uv(name: str) -> str:
+    """Reset/clear all UV data on a mesh object.
+
+    Removes all UV layers, effectively deleting all UV unwrap data.
+    A fresh default UV layer is created afterwards.
+
+    Args:
+        name: Name of the mesh object.
+    """
+    code = f"""
+import bpy
+
+obj = bpy.data.objects.get({name!r})
+if obj is None:
+    result = {{"error": "Object " + {name!r} + " not found"}}
+elif obj.type != 'MESH':
+    result = {{"error": "Object " + {name!r} + " is not a mesh"}}
+else:
+    mesh = obj.data
+    removed = [uv.name for uv in mesh.uv_layers]
+
+    while mesh.uv_layers:
+        mesh.uv_layers.remove(mesh.uv_layers[0])
+
+    mesh.uv_layers.new(name="UVMap")
+
+    result = {{
+        "object": obj.name,
+        "removed_layers": removed,
+        "new_layer": "UVMap",
+    }}
+"""
+    return _exec_json(code)
+
+
+@mcp.tool()
+def get_uv_snapshot(name: str = "", width: int = 960, height: int = 540) -> Image:
+    """Capture a screenshot of the UV Editor and return the image for Claude to see.
+
+    If a mesh object name is provided, it will be selected first so its UVs are visible.
+    The UV Editor must be open in Blender's layout for this to work.
+
+    Args:
+        name: Optional name of the mesh object to show UVs for. If empty, shows current selection.
+        width: Image width in pixels. Default 960.
+        height: Image height in pixels. Default 540.
+    """
+    tmp_path = os.path.join(tempfile.gettempdir(), "blender_mcp_uv_snapshot.png")
+
+    select_code = ""
+    if name:
+        select_code = f"""
+# Select the object so its UVs show in the editor
+obj = bpy.data.objects.get({name!r})
+if obj:
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='SELECT')
+"""
+
+    code = f"""
+import bpy
+import os
+
+{select_code}
+
+output_path = {tmp_path!r}
+
+# Find the IMAGE_EDITOR (UV Editor) area
+uv_area = None
+for area in bpy.context.screen.areas:
+    if area.type == 'IMAGE_EDITOR':
+        uv_area = area
+        break
+
+if uv_area is None:
+    # Try to find any area we can temporarily switch to UV editor
+    for area in bpy.context.screen.areas:
+        if area.type in ('PROPERTIES', 'OUTLINER', 'INFO'):
+            old_type = area.type
+            area.type = 'IMAGE_EDITOR'
+            uv_area = area
+            break
+
+if uv_area is None:
+    result = {{"error": "No UV Editor found. Open one in Blender's layout."}}
+else:
+    # Take screenshot of the UV editor area
+    for region in uv_area.regions:
+        if region.type == 'WINDOW':
+            with bpy.context.temp_override(area=uv_area, region=region):
+                bpy.ops.screen.screenshot_area(filepath=output_path)
+            break
+
+    result = {{"output_path": output_path}}
+
+# Return to object mode if we entered edit mode
+if bpy.context.active_object and bpy.context.active_object.mode == 'EDIT':
+    bpy.ops.object.mode_set(mode='OBJECT')
+"""
+
+    image_bytes = _exec_and_read_image(code)
+    if image_bytes is not None:
+        return Image(data=image_bytes, format="png")
+    return _error_json("Failed to capture UV Editor. Make sure a UV Editor panel is open in Blender.")

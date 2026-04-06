@@ -596,3 +596,131 @@ else:
     }}
 """
     return _exec_json(code)
+
+
+@mcp.tool()
+def focus_viewport_on(name: str) -> str:
+    """Center the 3D viewport on an object so it fills the view.
+
+    Equivalent to selecting an object and pressing Numpad '.' in Blender.
+
+    Args:
+        name: Name of the object to focus on.
+    """
+    code = f"""
+import bpy
+
+obj = bpy.data.objects.get({name!r})
+if obj is None:
+    result = {{"error": "Object " + {name!r} + " not found"}}
+else:
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+
+    for area in bpy.context.screen.areas:
+        if area.type == 'VIEW_3D':
+            for region in area.regions:
+                if region.type == 'WINDOW':
+                    with bpy.context.temp_override(area=area, region=region):
+                        bpy.ops.view3d.view_selected(use_all_regions=False)
+                    break
+            break
+
+    result = {{
+        "focused_on": obj.name,
+        "location": list(obj.location),
+    }}
+"""
+    return _exec_json(code)
+
+
+@mcp.tool()
+def rename_object(old_name: str, new_name: str) -> str:
+    """Rename an object in the scene.
+
+    Args:
+        old_name: Current name of the object.
+        new_name: New name for the object.
+    """
+    code = f"""
+import bpy
+
+obj = bpy.data.objects.get({old_name!r})
+if obj is None:
+    result = {{"error": "Object " + {old_name!r} + " not found"}}
+else:
+    old = obj.name
+    obj.name = {new_name!r}
+    result = {{
+        "old_name": old,
+        "new_name": obj.name,
+    }}
+"""
+    return _exec_json(code)
+
+
+@mcp.tool()
+def get_mesh_stats(name: str) -> str:
+    """Get detailed mesh statistics for topology analysis.
+
+    Reports triangle/quad/ngon counts, non-manifold edges,
+    loose vertices, loose edges, and bounding box dimensions.
+
+    Args:
+        name: Name of the mesh object.
+    """
+    code = f"""
+import bpy
+import bmesh
+
+obj = bpy.data.objects.get({name!r})
+if obj is None:
+    result = {{"error": "Object " + {name!r} + " not found"}}
+elif obj.type != 'MESH':
+    result = {{"error": "Object " + {name!r} + " is not a mesh"}}
+else:
+    bpy.context.view_layer.objects.active = obj
+    try:
+        bpy.ops.object.mode_set(mode='EDIT')
+        bm = bmesh.from_edit_mesh(obj.data)
+
+        tris = 0
+        quads = 0
+        ngons = 0
+        for f in bm.faces:
+            v = len(f.verts)
+            if v == 3:
+                tris += 1
+            elif v == 4:
+                quads += 1
+            else:
+                ngons += 1
+
+        non_manifold = sum(1 for e in bm.edges if not e.is_manifold)
+        loose_verts = sum(1 for v in bm.verts if not v.link_edges)
+        loose_edges = sum(1 for e in bm.edges if not e.link_faces)
+        boundary_edges = sum(1 for e in bm.edges if e.is_boundary)
+
+    finally:
+        bpy.ops.object.mode_set(mode='OBJECT')
+
+    dims = list(obj.dimensions)
+
+    result = {{
+        "object": obj.name,
+        "vertices": len(obj.data.vertices),
+        "edges": len(obj.data.edges),
+        "faces": len(obj.data.polygons),
+        "triangles": tris,
+        "quads": quads,
+        "ngons": ngons,
+        "non_manifold_edges": non_manifold,
+        "loose_vertices": loose_verts,
+        "loose_edges": loose_edges,
+        "boundary_edges": boundary_edges,
+        "dimensions": dims,
+        "is_watertight": non_manifold == 0 and boundary_edges == 0,
+    }}
+"""
+    return _exec_json(code)
