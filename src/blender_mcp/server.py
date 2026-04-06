@@ -107,6 +107,9 @@ def _register_tools():
         cursor,
         text,
         constraints,
+        uv,
+        curves,
+        shader_nodes,
     )
 
 _register_tools()

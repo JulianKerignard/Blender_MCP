@@ -1,0 +1,11 @@
+schema_version = "1.0.0"
+id = "blender_mcp"
+version = "0.1.0"
+name = "Blender MCP"
+tagline = "MCP server - allows AI assistants to control Blender"
+maintainer = "Julian Kerignard"
+type = "add-on"
+blender_version_min = "4.2.0"
+
+[permissions]
+network = "TCP server for MCP communication"

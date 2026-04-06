@@ -259,3 +259,71 @@ else:
     }}
 """
     return _exec_json(code)
+
+
+@mcp.tool()
+def set_object_visibility(
+    name: str,
+    visible: bool | None = None,
+    render_visible: bool | None = None,
+) -> str:
+    """Set the visibility of an object in the viewport and/or render.
+
+    Only provided (non-None) values are changed.
+
+    Args:
+        name: Name of the object.
+        visible: If True, show in viewport. If False, hide.
+        render_visible: If True, show in render. If False, hide from render.
+    """
+    code = f"""
+import bpy
+
+obj = bpy.data.objects.get({name!r})
+if obj is None:
+    result = {{"error": "Object " + {name!r} + " not found"}}
+else:
+    visible = {visible!r}
+    render_visible = {render_visible!r}
+
+    if visible is not None:
+        obj.hide_viewport = not visible
+    if render_visible is not None:
+        obj.hide_render = not render_visible
+
+    result = {{
+        "name": obj.name,
+        "visible_viewport": not obj.hide_viewport,
+        "visible_render": not obj.hide_render,
+    }}
+"""
+    return _exec_json(code)
+
+
+@mcp.tool()
+def toggle_object_visibility(names: list[str]) -> str:
+    """Toggle viewport visibility for one or more objects.
+
+    Each object's visibility is flipped (visible becomes hidden, and vice versa).
+
+    Args:
+        names: List of object names to toggle.
+    """
+    code = f"""
+import bpy
+
+names = {names!r}
+toggled = []
+not_found = []
+
+for n in names:
+    obj = bpy.data.objects.get(n)
+    if obj:
+        obj.hide_viewport = not obj.hide_viewport
+        toggled.append({{"name": obj.name, "visible": not obj.hide_viewport}})
+    else:
+        not_found.append(n)
+
+result = {{"toggled": toggled, "not_found": not_found}}
+"""
+    return _exec_json(code)
