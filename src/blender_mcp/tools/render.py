@@ -1,8 +1,25 @@
 """Render and viewport tools."""
 
-import json
+import os
+import tempfile
 
-from blender_mcp.server import mcp, _exec
+from mcp.server.fastmcp import Image
+
+from blender_mcp.server import mcp, _exec, _exec_json, _exec_and_read_image, _error_json
+
+# Shared image format map for generated Blender code
+_FORMAT_MAP_SNIPPET = """
+format_map = {
+    ".png": "PNG",
+    ".jpg": "JPEG",
+    ".jpeg": "JPEG",
+    ".bmp": "BMP",
+    ".tiff": "TIFF",
+    ".tif": "TIFF",
+    ".exr": "OPEN_EXR",
+    ".hdr": "HDR",
+}
+"""
 
 
 @mcp.tool()
@@ -12,11 +29,12 @@ def render_image(
     resolution_y: int = 1080,
     samples: int = 128,
     engine: str = "",
-) -> str:
+    return_image: bool = False,
+) -> str | Image:
     """Render the current scene to an image file.
 
     If no output_path is provided, a temporary file is used. Returns the
-    path to the rendered image.
+    path to the rendered image, or the image itself when return_image is True.
 
     Args:
         output_path: Destination file path for the render. If empty, a temp file is used.
@@ -25,6 +43,7 @@ def render_image(
         samples: Number of render samples.
         engine: Render engine (BLENDER_EEVEE_NEXT, CYCLES, BLENDER_WORKBENCH).
                 Leave empty to keep the current engine.
+        return_image: If True, return the rendered image inline instead of the file path JSON.
     """
     code = f"""
 import bpy
@@ -62,16 +81,7 @@ scene.render.filepath = output_path
 
 # Set image format based on extension
 ext = os.path.splitext(output_path)[1].lower()
-format_map = {{
-    ".png": "PNG",
-    ".jpg": "JPEG",
-    ".jpeg": "JPEG",
-    ".bmp": "BMP",
-    ".tiff": "TIFF",
-    ".tif": "TIFF",
-    ".exr": "OPEN_EXR",
-    ".hdr": "HDR",
-}}
+{_FORMAT_MAP_SNIPPET}
 scene.render.image_settings.file_format = format_map.get(ext, "PNG")
 
 # Render
@@ -84,8 +94,12 @@ result = {{
     "samples": {samples!r},
 }}
 """
-    result = _exec(code)
-    return json.dumps(result, indent=2)
+    if return_image:
+        image_bytes = _exec_and_read_image(code)
+        if image_bytes is not None:
+            return Image(data=image_bytes, format="png")
+        return _error_json("Failed to render image or read the output file.")
+    return _exec_json(code)
 
 
 @mcp.tool()
@@ -165,8 +179,7 @@ result = {{
     "updated_settings": updated,
 }}
 """
-    result = _exec(code)
-    return json.dumps(result, indent=2)
+    return _exec_json(code)
 
 
 @mcp.tool()
@@ -215,12 +228,7 @@ scene.render.filepath = output_path
 
 # Set image format based on extension
 ext = os.path.splitext(output_path)[1].lower()
-format_map = {{
-    ".png": "PNG",
-    ".jpg": "JPEG",
-    ".jpeg": "JPEG",
-    ".bmp": "BMP",
-}}
+{_FORMAT_MAP_SNIPPET}
 scene.render.image_settings.file_format = format_map.get(ext, "PNG")
 
 # Use OpenGL render for viewport capture
@@ -237,5 +245,129 @@ result = {{
     "height": {height!r},
 }}
 """
-    result = _exec(code)
-    return json.dumps(result, indent=2)
+    return _exec_json(code)
+
+
+@mcp.tool()
+def get_scene_snapshot(width: int = 960, height: int = 540) -> Image:
+    """Capture the 3D viewport and return the image for Claude to see.
+
+    This is the primary way for Claude to see what the scene looks like.
+    Uses a fast OpenGL viewport render.
+
+    Args:
+        width: Image width in pixels. Default 960 for fast capture.
+        height: Image height in pixels. Default 540 for fast capture.
+    """
+    tmp_path = os.path.join(tempfile.gettempdir(), "blender_mcp_snapshot.png")
+    code = f"""
+import bpy
+import tempfile
+import os
+
+scene = bpy.context.scene
+
+# Save original resolution to restore later
+orig_x = scene.render.resolution_x
+orig_y = scene.render.resolution_y
+orig_pct = scene.render.resolution_percentage
+
+# Set viewport render resolution
+scene.render.resolution_x = {width!r}
+scene.render.resolution_y = {height!r}
+scene.render.resolution_percentage = 100
+
+output_path = {tmp_path!r}
+
+# Ensure the directory exists
+out_dir = os.path.dirname(output_path)
+if out_dir:
+    os.makedirs(out_dir, exist_ok=True)
+
+scene.render.filepath = output_path
+scene.render.image_settings.file_format = "PNG"
+
+# Use OpenGL render for viewport capture
+bpy.ops.render.opengl(write_still=True)
+
+# Restore original resolution
+scene.render.resolution_x = orig_x
+scene.render.resolution_y = orig_y
+scene.render.resolution_percentage = orig_pct
+
+result = {{
+    "output_path": output_path,
+}}
+"""
+    image_bytes = _exec_and_read_image(code)
+    if image_bytes is not None:
+        return Image(data=image_bytes, format="png")
+    return _error_json("Failed to capture viewport snapshot.")
+
+
+@mcp.tool()
+def render_preview(width: int = 480, height: int = 270, samples: int = 16) -> Image:
+    """Render a quick low-resolution preview and return the image for Claude to see.
+
+    Uses EEVEE for speed. Good for checking materials, lighting, and composition.
+
+    Args:
+        width: Image width in pixels. Default 480 for fast preview.
+        height: Image height in pixels. Default 270 for fast preview.
+        samples: Number of render samples. Default 16 for speed.
+    """
+    tmp_path = os.path.join(tempfile.gettempdir(), "blender_mcp_snapshot.png")
+    code = f"""
+import bpy
+import tempfile
+import os
+
+scene = bpy.context.scene
+
+# Save original render settings
+orig_engine = scene.render.engine
+orig_x = scene.render.resolution_x
+orig_y = scene.render.resolution_y
+orig_pct = scene.render.resolution_percentage
+orig_eevee_samples = scene.eevee.taa_render_samples
+orig_cycles_samples = scene.cycles.samples if scene.render.engine == 'CYCLES' else None
+
+# Temporarily switch to EEVEE for speed
+scene.render.engine = 'BLENDER_EEVEE_NEXT'
+
+# Set low resolution and samples
+scene.render.resolution_x = {width!r}
+scene.render.resolution_y = {height!r}
+scene.render.resolution_percentage = 100
+scene.eevee.taa_render_samples = {samples!r}
+
+output_path = {tmp_path!r}
+
+# Ensure the directory exists
+out_dir = os.path.dirname(output_path)
+if out_dir:
+    os.makedirs(out_dir, exist_ok=True)
+
+scene.render.filepath = output_path
+scene.render.image_settings.file_format = "PNG"
+
+# Render
+bpy.ops.render.render(write_still=True)
+
+# Restore original settings
+scene.render.engine = orig_engine
+scene.render.resolution_x = orig_x
+scene.render.resolution_y = orig_y
+scene.render.resolution_percentage = orig_pct
+scene.eevee.taa_render_samples = orig_eevee_samples
+if orig_cycles_samples is not None:
+    scene.cycles.samples = orig_cycles_samples
+
+result = {{
+    "output_path": output_path,
+}}
+"""
+    image_bytes = _exec_and_read_image(code)
+    if image_bytes is not None:
+        return Image(data=image_bytes, format="png")
+    return _error_json("Failed to render preview image.")
