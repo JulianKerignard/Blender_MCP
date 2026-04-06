@@ -1,6 +1,6 @@
 """Scene management tools."""
 
-from blender_mcp.server import mcp, _exec_json
+from blender_mcp.server import mcp, _exec_json, _error_json
 
 
 @mcp.tool()
@@ -325,5 +325,274 @@ for n in names:
         not_found.append(n)
 
 result = {{"toggled": toggled, "not_found": not_found}}
+"""
+    return _exec_json(code)
+
+
+@mcp.tool()
+def clear_scene(keep_camera: bool = True, keep_light: bool = True) -> str:
+    """Delete all objects in the scene, optionally keeping camera and light.
+
+    Purges orphan data afterwards to clean up unused datablocks.
+
+    Args:
+        keep_camera: If True, keep camera objects.
+        keep_light: If True, keep light objects.
+    """
+    code = f"""
+import bpy
+
+keep_camera = {keep_camera!r}
+keep_light = {keep_light!r}
+
+kept = []
+deleted_count = 0
+
+bpy.ops.object.select_all(action='SELECT')
+
+for obj in bpy.context.scene.objects:
+    if keep_camera and obj.type == 'CAMERA':
+        obj.select_set(False)
+        kept.append(obj.name)
+    elif keep_light and obj.type == 'LIGHT':
+        obj.select_set(False)
+        kept.append(obj.name)
+
+deleted_count = len([obj for obj in bpy.context.scene.objects if obj.select_get()])
+bpy.ops.object.delete()
+
+bpy.ops.outliner.orphans_purge(do_recursive=True)
+
+result = {{
+    "deleted_count": deleted_count,
+    "kept_objects": kept,
+}}
+"""
+    return _exec_json(code)
+
+
+@mcp.tool()
+def boolean_operation(
+    target_name: str,
+    tool_name: str,
+    operation: str = "DIFFERENCE",
+    apply: bool = True,
+) -> str:
+    """Perform a boolean operation between two mesh objects.
+
+    Args:
+        target_name: Name of the object to modify.
+        tool_name: Name of the object used as the boolean tool.
+        operation: Boolean operation type: DIFFERENCE, UNION, or INTERSECT.
+        apply: If True, apply the modifier and delete the tool object.
+    """
+    op = operation.strip().upper()
+    if op not in ("DIFFERENCE", "UNION", "INTERSECT"):
+        return _error_json(f"Unknown operation: {operation}. Valid: DIFFERENCE, UNION, INTERSECT")
+
+    code = f"""
+import bpy
+
+target = bpy.data.objects.get({target_name!r})
+tool_obj = bpy.data.objects.get({tool_name!r})
+
+if target is None:
+    result = {{"error": "Target object " + {target_name!r} + " not found"}}
+elif tool_obj is None:
+    result = {{"error": "Tool object " + {tool_name!r} + " not found"}}
+else:
+    mod = target.modifiers.new(name="Boolean", type='BOOLEAN')
+    mod.operation = {op!r}
+    mod.object = tool_obj
+
+    if {apply!r}:
+        bpy.context.view_layer.objects.active = target
+        bpy.ops.object.modifier_apply(modifier=mod.name)
+        bpy.data.objects.remove(tool_obj, do_unlink=True)
+
+    mesh = target.data
+    result = {{
+        "object": target.name,
+        "operation": {op!r},
+        "applied": {apply!r},
+        "vertices": len(mesh.vertices),
+        "faces": len(mesh.polygons),
+    }}
+"""
+    return _exec_json(code)
+
+
+@mcp.tool()
+def align_objects(
+    names: list[str],
+    align_axis: str = "X",
+    align_mode: str = "CENTER",
+) -> str:
+    """Align objects along an axis.
+
+    Args:
+        names: List of object names to align.
+        align_axis: Axis to align on: X, Y, or Z.
+        align_mode: CENTER (average), MIN (align to lowest), or MAX (align to highest).
+    """
+    axis = align_axis.strip().upper()
+    if axis not in ("X", "Y", "Z"):
+        return _error_json(f"Unknown axis: {align_axis}. Valid: X, Y, Z")
+    mode = align_mode.strip().upper()
+    if mode not in ("CENTER", "MIN", "MAX"):
+        return _error_json(f"Unknown align_mode: {align_mode}. Valid: CENTER, MIN, MAX")
+
+    code = f"""
+import bpy
+
+names = {names!r}
+axis = {axis!r}
+mode = {mode!r}
+axis_index = {{"X": 0, "Y": 1, "Z": 2}}[axis]
+
+objects = []
+not_found = []
+for n in names:
+    obj = bpy.data.objects.get(n)
+    if obj:
+        objects.append(obj)
+    else:
+        not_found.append(n)
+
+if len(objects) < 2:
+    result = {{"error": "Need at least 2 objects to align", "not_found": not_found}}
+else:
+    positions = [obj.location[axis_index] for obj in objects]
+
+    if mode == "CENTER":
+        target = sum(positions) / len(positions)
+    elif mode == "MIN":
+        target = min(positions)
+    else:
+        target = max(positions)
+
+    aligned = []
+    for obj in objects:
+        obj.location[axis_index] = target
+        aligned.append({{"name": obj.name, "location": list(obj.location)}})
+
+    result = {{
+        "aligned": aligned,
+        "axis": axis,
+        "mode": mode,
+        "target_value": target,
+        "not_found": not_found,
+    }}
+"""
+    return _exec_json(code)
+
+
+@mcp.tool()
+def distribute_objects(
+    names: list[str],
+    axis: str = "X",
+    spacing: float = 2.0,
+) -> str:
+    """Distribute objects evenly along an axis with a given spacing.
+
+    Objects are sorted by their current position on the axis. The first object
+    stays in place and each subsequent object is placed at the previous
+    object's position plus the spacing.
+
+    Args:
+        names: List of object names to distribute.
+        axis: Axis to distribute along: X, Y, or Z.
+        spacing: Distance between each object along the axis.
+    """
+    ax = axis.strip().upper()
+    if ax not in ("X", "Y", "Z"):
+        return _error_json(f"Unknown axis: {axis}. Valid: X, Y, Z")
+
+    code = f"""
+import bpy
+
+names = {names!r}
+axis = {ax!r}
+spacing = {spacing!r}
+axis_index = {{"X": 0, "Y": 1, "Z": 2}}[axis]
+
+objects = []
+not_found = []
+for n in names:
+    obj = bpy.data.objects.get(n)
+    if obj:
+        objects.append(obj)
+    else:
+        not_found.append(n)
+
+if len(objects) < 2:
+    result = {{"error": "Need at least 2 objects to distribute", "not_found": not_found}}
+else:
+    objects.sort(key=lambda o: o.location[axis_index])
+
+    distributed = []
+    for i, obj in enumerate(objects):
+        if i > 0:
+            obj.location[axis_index] = objects[0].location[axis_index] + spacing * i
+        distributed.append({{"name": obj.name, "location": list(obj.location)}})
+
+    result = {{
+        "distributed": distributed,
+        "axis": axis,
+        "spacing": spacing,
+        "not_found": not_found,
+    }}
+"""
+    return _exec_json(code)
+
+
+@mcp.tool()
+def mirror_object(
+    name: str,
+    axis: str = "X",
+    copy: bool = True,
+) -> str:
+    """Mirror an object along an axis.
+
+    Args:
+        name: Name of the object to mirror.
+        axis: Axis to mirror across: X, Y, or Z.
+        copy: If True, duplicate the object first and mirror the copy.
+    """
+    ax = axis.strip().upper()
+    if ax not in ("X", "Y", "Z"):
+        return _error_json(f"Unknown axis: {axis}. Valid: X, Y, Z")
+
+    code = f"""
+import bpy
+
+obj = bpy.data.objects.get({name!r})
+if obj is None:
+    result = {{"error": "Object " + {name!r} + " not found"}}
+else:
+    axis = {ax!r}
+    axis_index = {{"X": 0, "Y": 1, "Z": 2}}[axis]
+
+    if {copy!r}:
+        new_obj = obj.copy()
+        if obj.data:
+            new_obj.data = obj.data.copy()
+        bpy.context.collection.objects.link(new_obj)
+        target = new_obj
+    else:
+        target = obj
+
+    target.scale[axis_index] *= -1
+
+    bpy.context.view_layer.objects.active = target
+    bpy.ops.object.select_all(action='DESELECT')
+    target.select_set(True)
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+
+    result = {{
+        "mirrored_object": target.name,
+        "axis": axis,
+        "is_copy": {copy!r},
+    }}
 """
     return _exec_json(code)

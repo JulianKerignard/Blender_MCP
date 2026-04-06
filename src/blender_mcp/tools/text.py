@@ -86,39 +86,9 @@ result = {{
 
 
 @mcp.tool()
-def set_text_content(name: str, text: str) -> str:
-    """Set the text content of an existing text (font) object.
-
-    Args:
-        name: Name of the text object.
-        text: New text content to display.
-
-    Returns:
-        JSON with the updated object name and text content.
-    """
-    code = f"""
-import bpy
-
-obj = bpy.data.objects.get({name!r})
-if obj is None:
-    result = {{"error": "Object " + {name!r} + " not found"}}
-elif obj.type != 'FONT':
-    result = {{"error": "Object " + {name!r} + " is not a text object (type: " + obj.type + ")"}}
-else:
-    obj.data.body = {text!r}
-    result = {{
-        "name": obj.name,
-        "text": obj.data.body,
-        "size": obj.data.size,
-        "dimensions": list(obj.dimensions),
-    }}
-"""
-    return _exec_json(code)
-
-
-@mcp.tool()
 def set_text_properties(
     name: str,
+    text: str | None = None,
     size: float | None = None,
     extrude: float | None = None,
     bevel_depth: float | None = None,
@@ -133,6 +103,7 @@ def set_text_properties(
 
     Args:
         name: Name of the text object.
+        text: New text content. None to keep current text.
         size: Font size.
         extrude: 3D extrusion depth.
         bevel_depth: Bevel depth for rounded edges.
@@ -153,6 +124,10 @@ if obj is None:
 elif obj.type != 'FONT':
     result = {{"error": "Object " + {name!r} + " is not a text object (type: " + obj.type + ")"}}
 else:
+    text_val = {text!r}
+    if text_val is not None:
+        obj.data.body = text_val
+
     size = {size!r}
     extrude = {extrude!r}
     bevel_depth = {bevel_depth!r}
