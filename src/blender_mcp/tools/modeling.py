@@ -30,16 +30,11 @@ def create_primitive(
         depth: Depth/height (for cylinder, cone).
         major_radius: Major radius (for torus).
         minor_radius: Minor radius (for torus).
-
-    Returns:
-        JSON with the created object's name and basic info.
     """
     loc = location or [0.0, 0.0, 0.0]
 
-    # Build keyword arguments for the primitive_add call
     kwargs_parts = [f"location=({loc[0]}, {loc[1]}, {loc[2]})"]
 
-    # Map primitive types to their bpy.ops function and which size parameter they use
     size_param_map = {
         "cube": "size",
         "sphere": "radius",
@@ -47,7 +42,7 @@ def create_primitive(
         "ico_sphere": "radius",
         "cylinder": "radius",
         "cone": "radius",
-        "torus": None,  # torus uses major/minor radius
+        "torus": None,
         "plane": "size",
         "circle": "radius",
         "grid": "size",
@@ -55,9 +50,11 @@ def create_primitive(
     }
 
     ptype = primitive_type.lower()
-    # Normalize "sphere" to "uv_sphere"
     if ptype == "sphere":
         ptype = "uv_sphere"
+
+    if ptype not in size_param_map:
+        return _error_json(f"Unknown primitive type: {primitive_type}. Valid: {', '.join(size_param_map.keys())}")
 
     size_param = size_param_map.get(ptype)
     if size_param:
@@ -117,9 +114,6 @@ def create_mesh(
         vertices: List of vertex positions, each as [x, y, z].
         edges: Optional list of edges, each as [vertex_index_1, vertex_index_2].
         faces: Optional list of faces, each as a list of vertex indices.
-
-    Returns:
-        JSON with the created object's name and mesh info.
     """
     edges_data = edges or []
     faces_data = faces or []
@@ -179,9 +173,6 @@ def edit_mesh(
         thickness: Inset thickness (for inset).
         cuts: Number of cuts (for subdivide, loop_cut). Default 1.
         edge_index: Edge index for loop_cut placement.
-
-    Returns:
-        JSON with the result of the edit operation.
     """
     op = operation.lower()
 
@@ -191,37 +182,40 @@ def edit_mesh(
 import bpy
 import bmesh
 
-obj = bpy.data.objects[{name!r}]
-bpy.context.view_layer.objects.active = obj
-bpy.ops.object.mode_set(mode='EDIT')
+obj = bpy.data.objects.get({name!r})
+if obj is None:
+    result = {{"error": "Object " + {name!r} + " not found"}}
+else:
+    bpy.context.view_layer.objects.active = obj
+    try:
+        bpy.ops.object.mode_set(mode='EDIT')
+        bm = bmesh.from_edit_mesh(obj.data)
+        bm.faces.ensure_lookup_table()
 
-bm = bmesh.from_edit_mesh(obj.data)
-bm.faces.ensure_lookup_table()
+        selected = [f for f in bm.faces if f.select]
+        if not selected:
+            for f in bm.faces:
+                f.select = True
+            selected = list(bm.faces)
 
-# Select all faces if none selected
-selected = [f for f in bm.faces if f.select]
-if not selected:
-    for f in bm.faces:
-        f.select = True
-    selected = list(bm.faces)
+        ret = bmesh.ops.extrude_discrete_faces(bm, faces=selected)
+        extruded_faces = [e for e in ret['faces']]
+        for f in extruded_faces:
+            for v in f.verts:
+                v.co += f.normal * {extrude_offset}
 
-ret = bmesh.ops.extrude_discrete_faces(bm, faces=selected)
-extruded_faces = [e for e in ret['faces']]
-for f in extruded_faces:
-    for v in f.verts:
-        v.co += f.normal * {extrude_offset}
+        bmesh.update_edit_mesh(obj.data)
+    finally:
+        bpy.ops.object.mode_set(mode='OBJECT')
 
-bmesh.update_edit_mesh(obj.data)
-bpy.ops.object.mode_set(mode='OBJECT')
-
-result = {{
-    "object": obj.name,
-    "operation": "extrude_faces",
-    "faces_extruded": len(extruded_faces),
-    "offset": {extrude_offset},
-    "vertex_count": len(obj.data.vertices),
-    "face_count": len(obj.data.polygons),
-}}
+    result = {{
+        "object": obj.name,
+        "operation": "extrude_faces",
+        "faces_extruded": len(extruded_faces),
+        "offset": {extrude_offset},
+        "vertex_count": len(obj.data.vertices),
+        "face_count": len(obj.data.polygons),
+    }}
 """
 
     elif op == "bevel":
@@ -231,33 +225,35 @@ result = {{
 import bpy
 import bmesh
 
-obj = bpy.data.objects[{name!r}]
-bpy.context.view_layer.objects.active = obj
-bpy.ops.object.mode_set(mode='EDIT')
+obj = bpy.data.objects.get({name!r})
+if obj is None:
+    result = {{"error": "Object " + {name!r} + " not found"}}
+else:
+    bpy.context.view_layer.objects.active = obj
+    try:
+        bpy.ops.object.mode_set(mode='EDIT')
+        bm = bmesh.from_edit_mesh(obj.data)
+        bm.edges.ensure_lookup_table()
 
-bm = bmesh.from_edit_mesh(obj.data)
-bm.edges.ensure_lookup_table()
+        selected = [e for e in bm.edges if e.select]
+        if not selected:
+            for e in bm.edges:
+                e.select = True
+            selected = list(bm.edges)
 
-# Select all edges if none selected
-selected = [e for e in bm.edges if e.select]
-if not selected:
-    for e in bm.edges:
-        e.select = True
-    selected = list(bm.edges)
+        bmesh.ops.bevel(bm, geom=selected, offset={bevel_width}, segments={bevel_segments}, affect='EDGES')
+        bmesh.update_edit_mesh(obj.data)
+    finally:
+        bpy.ops.object.mode_set(mode='OBJECT')
 
-bmesh.ops.bevel(bm, geom=selected, offset={bevel_width}, segments={bevel_segments}, affect='EDGES')
-
-bmesh.update_edit_mesh(obj.data)
-bpy.ops.object.mode_set(mode='OBJECT')
-
-result = {{
-    "object": obj.name,
-    "operation": "bevel",
-    "width": {bevel_width},
-    "segments": {bevel_segments},
-    "vertex_count": len(obj.data.vertices),
-    "face_count": len(obj.data.polygons),
-}}
+    result = {{
+        "object": obj.name,
+        "operation": "bevel",
+        "width": {bevel_width},
+        "segments": {bevel_segments},
+        "vertex_count": len(obj.data.vertices),
+        "face_count": len(obj.data.polygons),
+    }}
 """
 
     elif op == "inset":
@@ -266,32 +262,34 @@ result = {{
 import bpy
 import bmesh
 
-obj = bpy.data.objects[{name!r}]
-bpy.context.view_layer.objects.active = obj
-bpy.ops.object.mode_set(mode='EDIT')
+obj = bpy.data.objects.get({name!r})
+if obj is None:
+    result = {{"error": "Object " + {name!r} + " not found"}}
+else:
+    bpy.context.view_layer.objects.active = obj
+    try:
+        bpy.ops.object.mode_set(mode='EDIT')
+        bm = bmesh.from_edit_mesh(obj.data)
+        bm.faces.ensure_lookup_table()
 
-bm = bmesh.from_edit_mesh(obj.data)
-bm.faces.ensure_lookup_table()
+        selected = [f for f in bm.faces if f.select]
+        if not selected:
+            for f in bm.faces:
+                f.select = True
+            selected = list(bm.faces)
 
-# Select all faces if none selected
-selected = [f for f in bm.faces if f.select]
-if not selected:
-    for f in bm.faces:
-        f.select = True
-    selected = list(bm.faces)
+        bmesh.ops.inset_individual(bm, faces=selected, thickness={inset_thickness})
+        bmesh.update_edit_mesh(obj.data)
+    finally:
+        bpy.ops.object.mode_set(mode='OBJECT')
 
-bmesh.ops.inset_individual(bm, faces=selected, thickness={inset_thickness})
-
-bmesh.update_edit_mesh(obj.data)
-bpy.ops.object.mode_set(mode='OBJECT')
-
-result = {{
-    "object": obj.name,
-    "operation": "inset",
-    "thickness": {inset_thickness},
-    "vertex_count": len(obj.data.vertices),
-    "face_count": len(obj.data.polygons),
-}}
+    result = {{
+        "object": obj.name,
+        "operation": "inset",
+        "thickness": {inset_thickness},
+        "vertex_count": len(obj.data.vertices),
+        "face_count": len(obj.data.polygons),
+    }}
 """
 
     elif op == "subdivide":
@@ -300,32 +298,34 @@ result = {{
 import bpy
 import bmesh
 
-obj = bpy.data.objects[{name!r}]
-bpy.context.view_layer.objects.active = obj
-bpy.ops.object.mode_set(mode='EDIT')
+obj = bpy.data.objects.get({name!r})
+if obj is None:
+    result = {{"error": "Object " + {name!r} + " not found"}}
+else:
+    bpy.context.view_layer.objects.active = obj
+    try:
+        bpy.ops.object.mode_set(mode='EDIT')
+        bm = bmesh.from_edit_mesh(obj.data)
+        bm.edges.ensure_lookup_table()
 
-bm = bmesh.from_edit_mesh(obj.data)
-bm.edges.ensure_lookup_table()
+        selected = [e for e in bm.edges if e.select]
+        if not selected:
+            for e in bm.edges:
+                e.select = True
+            selected = list(bm.edges)
 
-# Select all edges if none selected
-selected = [e for e in bm.edges if e.select]
-if not selected:
-    for e in bm.edges:
-        e.select = True
-    selected = list(bm.edges)
+        bmesh.ops.subdivide_edges(bm, edges=selected, cuts={num_cuts})
+        bmesh.update_edit_mesh(obj.data)
+    finally:
+        bpy.ops.object.mode_set(mode='OBJECT')
 
-bmesh.ops.subdivide_edges(bm, edges=selected, cuts={num_cuts})
-
-bmesh.update_edit_mesh(obj.data)
-bpy.ops.object.mode_set(mode='OBJECT')
-
-result = {{
-    "object": obj.name,
-    "operation": "subdivide",
-    "cuts": {num_cuts},
-    "vertex_count": len(obj.data.vertices),
-    "face_count": len(obj.data.polygons),
-}}
+    result = {{
+        "object": obj.name,
+        "operation": "subdivide",
+        "cuts": {num_cuts},
+        "vertex_count": len(obj.data.vertices),
+        "face_count": len(obj.data.polygons),
+    }}
 """
 
     elif op == "loop_cut":
@@ -334,26 +334,29 @@ result = {{
         code = f"""
 import bpy
 
-obj = bpy.data.objects[{name!r}]
-bpy.context.view_layer.objects.active = obj
-obj.select_set(True)
-bpy.ops.object.mode_set(mode='EDIT')
+obj = bpy.data.objects.get({name!r})
+if obj is None:
+    result = {{"error": "Object " + {name!r} + " not found"}}
+else:
+    bpy.context.view_layer.objects.active = obj
+    obj.select_set(True)
+    try:
+        bpy.ops.object.mode_set(mode='EDIT')
+        bpy.ops.mesh.loopcut_slide(
+            MESH_OT_loopcut={{"number_cuts": {num_cuts}, "edge_index": {e_index}}},
+            TRANSFORM_OT_edge_slide={{"value": 0.0}},
+        )
+    finally:
+        bpy.ops.object.mode_set(mode='OBJECT')
 
-bpy.ops.mesh.loopcut_slide(
-    MESH_OT_loopcut={{"number_cuts": {num_cuts}, "edge_index": {e_index}}},
-    TRANSFORM_OT_edge_slide={{"value": 0.0}},
-)
-
-bpy.ops.object.mode_set(mode='OBJECT')
-
-result = {{
-    "object": obj.name,
-    "operation": "loop_cut",
-    "cuts": {num_cuts},
-    "edge_index": {e_index},
-    "vertex_count": len(obj.data.vertices),
-    "face_count": len(obj.data.polygons),
-}}
+    result = {{
+        "object": obj.name,
+        "operation": "loop_cut",
+        "cuts": {num_cuts},
+        "edge_index": {e_index},
+        "vertex_count": len(obj.data.vertices),
+        "face_count": len(obj.data.polygons),
+    }}
 """
     else:
         return _error_json(f"Unknown operation: {operation}")
@@ -370,36 +373,35 @@ def join_objects(names: list[str]) -> str:
 
     Args:
         names: List of object names to join. First name becomes the active object.
-
-    Returns:
-        JSON with the resulting joined object info.
     """
     code = f"""
 import bpy
 
 names = {names!r}
-
-# Deselect all
 bpy.ops.object.select_all(action='DESELECT')
 
-# Select all named objects
+not_found = []
 for obj_name in names:
-    obj = bpy.data.objects[obj_name]
-    obj.select_set(True)
+    obj = bpy.data.objects.get(obj_name)
+    if obj:
+        obj.select_set(True)
+    else:
+        not_found.append(obj_name)
 
-# Set first as active
-bpy.context.view_layer.objects.active = bpy.data.objects[names[0]]
+if not_found:
+    result = {{"error": "Objects not found: " + str(not_found)}}
+else:
+    bpy.context.view_layer.objects.active = bpy.data.objects.get(names[0])
+    bpy.ops.object.join()
 
-bpy.ops.object.join()
-
-obj = bpy.context.active_object
-result = {{
-    "name": obj.name,
-    "type": obj.type,
-    "vertex_count": len(obj.data.vertices) if obj.type == 'MESH' else None,
-    "face_count": len(obj.data.polygons) if obj.type == 'MESH' else None,
-    "joined_count": len(names),
-}}
+    obj = bpy.context.active_object
+    result = {{
+        "name": obj.name,
+        "type": obj.type,
+        "vertex_count": len(obj.data.vertices) if obj.type == 'MESH' else None,
+        "face_count": len(obj.data.polygons) if obj.type == 'MESH' else None,
+        "joined_count": len(names),
+    }}
 """
     return _exec_json(code)
 
@@ -410,37 +412,35 @@ def separate_mesh(name: str, mode: str = "SELECTED") -> str:
 
     Args:
         name: Name of the mesh object to separate.
-        mode: Separation mode. One of:
-            - "SELECTED": Separate selected geometry.
-            - "MATERIAL": Separate by material assignment.
-            - "LOOSE": Separate by loose/disconnected parts.
-
-    Returns:
-        JSON with the separation result.
+        mode: Separation mode. One of: SELECTED, MATERIAL, LOOSE.
     """
     mode_upper = mode.upper()
     code = f"""
 import bpy
 
-obj = bpy.data.objects[{name!r}]
-bpy.ops.object.select_all(action='DESELECT')
-obj.select_set(True)
-bpy.context.view_layer.objects.active = obj
+obj = bpy.data.objects.get({name!r})
+if obj is None:
+    result = {{"error": "Object " + {name!r} + " not found"}}
+else:
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
 
-bpy.ops.object.mode_set(mode='EDIT')
-bpy.ops.mesh.select_all(action='SELECT')
-bpy.ops.mesh.separate(type={mode_upper!r})
-bpy.ops.object.mode_set(mode='OBJECT')
+    try:
+        bpy.ops.object.mode_set(mode='EDIT')
+        bpy.ops.mesh.select_all(action='SELECT')
+        bpy.ops.mesh.separate(type={mode_upper!r})
+    finally:
+        bpy.ops.object.mode_set(mode='OBJECT')
 
-# Gather all selected objects after separation
-separated = [o.name for o in bpy.context.selected_objects]
+    separated = [o.name for o in bpy.context.selected_objects]
 
-result = {{
-    "original_name": {name!r},
-    "mode": {mode_upper!r},
-    "resulting_objects": separated,
-    "count": len(separated),
-}}
+    result = {{
+        "original_name": {name!r},
+        "mode": {mode_upper!r},
+        "resulting_objects": separated,
+        "count": len(separated),
+    }}
 """
     return _exec_json(code)
 
@@ -451,31 +451,27 @@ def set_origin(name: str, origin_type: str = "ORIGIN_GEOMETRY") -> str:
 
     Args:
         name: Name of the object.
-        origin_type: Origin type. One of:
-            - "ORIGIN_GEOMETRY": Origin to geometry center.
-            - "ORIGIN_CENTER_OF_MASS": Origin to center of mass (surface).
-            - "ORIGIN_CENTER_OF_VOLUME": Origin to center of mass (volume).
-            - "GEOMETRY_ORIGIN": Geometry to origin.
-            - "ORIGIN_CURSOR": Origin to 3D cursor.
-
-    Returns:
-        JSON with the object's updated origin location.
+        origin_type: Origin type. One of: ORIGIN_GEOMETRY, ORIGIN_CENTER_OF_MASS,
+            ORIGIN_CENTER_OF_VOLUME, GEOMETRY_ORIGIN, ORIGIN_CURSOR.
     """
     code = f"""
 import bpy
 
-obj = bpy.data.objects[{name!r}]
-bpy.ops.object.select_all(action='DESELECT')
-obj.select_set(True)
-bpy.context.view_layer.objects.active = obj
+obj = bpy.data.objects.get({name!r})
+if obj is None:
+    result = {{"error": "Object " + {name!r} + " not found"}}
+else:
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
 
-bpy.ops.object.origin_set(type={origin_type!r})
+    bpy.ops.object.origin_set(type={origin_type!r})
 
-result = {{
-    "name": obj.name,
-    "origin_type": {origin_type!r},
-    "location": list(obj.location),
-}}
+    result = {{
+        "name": obj.name,
+        "origin_type": {origin_type!r},
+        "location": list(obj.location),
+    }}
 """
     return _exec_json(code)
 
@@ -487,24 +483,24 @@ def set_smooth_shading(name: str, smooth: bool = True) -> str:
     Args:
         name: Name of the mesh object.
         smooth: True for smooth shading, False for flat shading.
-
-    Returns:
-        JSON with the shading result.
     """
     shade_op = "shade_smooth" if smooth else "shade_flat"
     code = f"""
 import bpy
 
-obj = bpy.data.objects[{name!r}]
-bpy.ops.object.select_all(action='DESELECT')
-obj.select_set(True)
-bpy.context.view_layer.objects.active = obj
+obj = bpy.data.objects.get({name!r})
+if obj is None:
+    result = {{"error": "Object " + {name!r} + " not found"}}
+else:
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
 
-bpy.ops.object.{shade_op}()
+    bpy.ops.object.{shade_op}()
 
-result = {{
-    "name": obj.name,
-    "shading": "{'smooth' if smooth else 'flat'}",
-}}
+    result = {{
+        "name": obj.name,
+        "shading": "{'smooth' if smooth else 'flat'}",
+    }}
 """
     return _exec_json(code)
