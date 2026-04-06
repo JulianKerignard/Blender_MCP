@@ -500,3 +500,42 @@ else:
             }}
 """
     return _exec_json(code)
+
+
+@mcp.tool()
+def pack_uv_islands(name: str, margin: float = 0.01) -> str:
+    """Pack UV islands to fill the UV space efficiently without overlapping.
+
+    Run this after unwrapping to arrange all UV islands neatly within the 0-1 UV space.
+
+    Args:
+        name: Name of the mesh object.
+        margin: Space between islands (0-1). Default 0.01.
+    """
+    code = f"""
+import bpy
+
+obj = bpy.data.objects.get({name!r})
+if obj is None:
+    result = {{"error": "Object " + {name!r} + " not found"}}
+elif obj.type != 'MESH':
+    result = {{"error": "Object " + {name!r} + " is not a mesh"}}
+else:
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+
+    try:
+        bpy.ops.object.mode_set(mode='EDIT')
+        bpy.ops.mesh.select_all(action='SELECT')
+        bpy.ops.uv.pack_islands(margin={margin})
+    finally:
+        bpy.ops.object.mode_set(mode='OBJECT')
+
+    result = {{
+        "object": obj.name,
+        "margin": {margin},
+        "success": True,
+    }}
+"""
+    return _exec_json(code)
