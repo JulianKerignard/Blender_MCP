@@ -3,29 +3,32 @@
 import json
 import logging
 import os
+import threading
 from mcp.server.fastmcp import FastMCP
 
 from blender_mcp.connection import BlenderConnection
-from blender_mcp.config import load_config
+from blender_mcp.config import load_config, DEFAULT_HOST, DEFAULT_PORT
 
 logger = logging.getLogger(__name__)
 
 # Global connection instance (reused across reconnects)
 _connection: BlenderConnection | None = None
+_connection_lock = threading.Lock()
 
 
 def get_connection() -> BlenderConnection:
     """Get or create the Blender connection, reusing the instance."""
     global _connection
-    if _connection is None:
-        config = load_config()
-        _connection = BlenderConnection(
-            host=config.get("tcp_host", "127.0.0.1"),
-            port=config.get("tcp_port", 9876),
-        )
-    if not _connection.is_connected:
-        _connection.connect()
-    return _connection
+    with _connection_lock:
+        if _connection is None:
+            config = load_config()
+            _connection = BlenderConnection(
+                host=config.get("tcp_host", DEFAULT_HOST),
+                port=config.get("tcp_port", DEFAULT_PORT),
+            )
+        if not _connection.is_connected:
+            _connection.connect()
+        return _connection
 
 
 # Create MCP server
@@ -48,12 +51,25 @@ def _exec_json(code: str) -> str:
     """Execute Python code in Blender and return a JSON string result.
 
     Catches connection and runtime errors, returning them as JSON error objects.
+    On connection error, resets the connection so the next call can reconnect.
     """
     try:
         result = _exec(code)
         return json.dumps(result, indent=2)
-    except (ConnectionError, RuntimeError) as e:
+    except ConnectionError as e:
+        _reset_connection()
         return json.dumps({"error": str(e)}, indent=2)
+    except RuntimeError as e:
+        return json.dumps({"error": str(e)}, indent=2)
+
+
+def _reset_connection() -> None:
+    """Reset the global connection so the next call will reconnect."""
+    global _connection
+    with _connection_lock:
+        if _connection is not None:
+            _connection.disconnect()
+            _connection = None
 
 
 def _error_json(message: str) -> str:

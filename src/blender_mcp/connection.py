@@ -1,24 +1,53 @@
 """TCP client for communicating with the Blender addon."""
 
 import json
+import logging
 import socket
 import struct
+from pathlib import Path
 from typing import Any
+
+from blender_mcp.config import DEFAULT_HOST, DEFAULT_PORT, MAX_MESSAGE_SIZE
+
+logger = logging.getLogger(__name__)
+
+
+def _read_auth_token() -> str:
+    """Read the shared auth token from the config directory."""
+    token_path = Path.home() / ".blender_mcp" / ".auth_token"
+    if token_path.exists():
+        return token_path.read_text().strip()
+    return ""
 
 
 class BlenderConnection:
     """Manages TCP connection to the Blender MCP addon."""
 
-    def __init__(self, host: str = "127.0.0.1", port: int = 9876):
+    def __init__(self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT):
         self.host = host
         self.port = port
         self._socket: socket.socket | None = None
 
     def connect(self) -> None:
-        """Connect to the Blender addon TCP server."""
+        """Connect to the Blender addon TCP server and authenticate."""
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._socket.settimeout(30.0)
+        self._socket.settimeout(120.0)
         self._socket.connect((self.host, self.port))
+        self._authenticate()
+
+    def _authenticate(self) -> None:
+        """Send auth token and verify the server accepts it."""
+        token = _read_auth_token()
+        auth_msg = json.dumps({"auth_token": token}).encode("utf-8")
+        self._send_message(auth_msg)
+        response_data = self._recv_message()
+        response = json.loads(response_data.decode("utf-8"))
+        if response.get("status") != "ok":
+            self.disconnect()
+            raise ConnectionError(
+                "Authentication failed. Ensure Blender addon is running "
+                "and the auth token matches (~/.blender_mcp/.auth_token)."
+            )
 
     def disconnect(self) -> None:
         """Disconnect from Blender."""
@@ -42,6 +71,10 @@ class BlenderConnection:
         """Receive a length-prefixed message."""
         raw_length = self._recv_exact(4)
         length = struct.unpack(">I", raw_length)[0]
+        if length > MAX_MESSAGE_SIZE:
+            raise ConnectionError(
+                f"Message too large ({length} bytes, max {MAX_MESSAGE_SIZE})"
+            )
         return self._recv_exact(length)
 
     def _recv_exact(self, n: int) -> bytes:

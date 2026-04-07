@@ -12,6 +12,8 @@ bl_info = {
 
 import bpy
 import json
+import os
+import secrets
 import socket
 import struct
 import threading
@@ -19,6 +21,34 @@ import traceback
 import io
 import sys
 from contextlib import redirect_stdout, redirect_stderr
+from pathlib import Path
+
+DEFAULT_HOST = "127.0.0.1"
+DEFAULT_PORT = 9876
+MAX_MESSAGE_SIZE = 100 * 1024 * 1024  # 100 MB
+
+
+def _get_auth_token_path() -> Path:
+    """Get the path to the shared auth token file."""
+    config_dir = Path.home() / ".blender_mcp"
+    config_dir.mkdir(exist_ok=True)
+    return config_dir / ".auth_token"
+
+
+def _ensure_auth_token() -> str:
+    """Generate or read the shared auth token used for TCP authentication."""
+    token_path = _get_auth_token_path()
+    if token_path.exists():
+        token = token_path.read_text().strip()
+        if token:
+            return token
+    token = secrets.token_hex(32)
+    token_path.write_text(token)
+    try:
+        os.chmod(token_path, 0o600)
+    except OSError:
+        pass
+    return token
 
 
 # ---------------------------------------------------------------------------
@@ -28,7 +58,7 @@ from contextlib import redirect_stdout, redirect_stderr
 class BlenderMCPServer:
     """TCP server running inside Blender to receive and execute commands."""
 
-    _EXEC_GLOBALS: dict | None = None
+    _EXEC_BASE_GLOBALS: dict | None = None
 
     def __init__(self):
         self.server_socket: socket.socket | None = None
@@ -37,11 +67,14 @@ class BlenderMCPServer:
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
         self._pending_commands: list = []
+        self._auth_token: str = ""
 
-    def start(self, host: str = "127.0.0.1", port: int = 9876):
+    def start(self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT):
         """Start the TCP server in a background thread."""
         if self.running:
             return
+
+        self._auth_token = _ensure_auth_token()
 
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -93,8 +126,40 @@ class BlenderMCPServer:
                     continue
                 break
 
+    def _authenticate_client(self, client: socket.socket) -> bool:
+        """Authenticate a client by checking its auth token."""
+        try:
+            raw_length = self._recv_exact(client, 4)
+            if not raw_length:
+                return False
+            length = struct.unpack(">I", raw_length)[0]
+            if length > 1024:
+                return False
+            data = self._recv_exact(client, length)
+            if not data:
+                return False
+            msg = json.loads(data.decode("utf-8"))
+            client_token = msg.get("auth_token", "")
+            if not secrets.compare_digest(client_token, self._auth_token):
+                error = json.dumps({"status": "error", "message": "Authentication failed"}).encode("utf-8")
+                client.sendall(struct.pack(">I", len(error)) + error)
+                return False
+            ok = json.dumps({"status": "ok", "message": "Authenticated"}).encode("utf-8")
+            client.sendall(struct.pack(">I", len(ok)) + ok)
+            return True
+        except (OSError, json.JSONDecodeError, struct.error):
+            return False
+
     def _handle_client(self, client: socket.socket):
-        """Handle a connected client - receive commands."""
+        """Handle a connected client - authenticate then receive commands."""
+        if not self._authenticate_client(client):
+            try:
+                client.close()
+            except OSError:
+                pass
+            self.client_socket = None
+            return
+
         while self.running:
             try:
                 # Receive length-prefixed message
@@ -102,6 +167,8 @@ class BlenderMCPServer:
                 if not raw_length:
                     break
                 length = struct.unpack(">I", raw_length)[0]
+                if length > MAX_MESSAGE_SIZE:
+                    break
                 data = self._recv_exact(client, length)
                 if not data:
                     break
@@ -187,16 +254,19 @@ class BlenderMCPServer:
             return {"status": "error", "message": f"Unknown command: {command}"}
 
     def _get_exec_globals(self) -> dict:
-        """Get pre-populated globals dict for exec(), avoiding repeated imports."""
-        if BlenderMCPServer._EXEC_GLOBALS is None:
+        """Get a fresh copy of pre-populated globals dict for exec().
+
+        Returns a copy each time to prevent globals pollution between executions.
+        """
+        if BlenderMCPServer._EXEC_BASE_GLOBALS is None:
             import math
-            BlenderMCPServer._EXEC_GLOBALS = {
+            BlenderMCPServer._EXEC_BASE_GLOBALS = {
                 "__builtins__": __builtins__,
                 "bpy": bpy,
                 "math": math,
                 "json": json,
             }
-        return BlenderMCPServer._EXEC_GLOBALS
+        return dict(BlenderMCPServer._EXEC_BASE_GLOBALS)
 
     def _execute_code(self, code: str) -> dict:
         """Execute Python code in Blender and return the result."""

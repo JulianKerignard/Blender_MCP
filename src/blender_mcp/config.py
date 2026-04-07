@@ -1,14 +1,23 @@
-"""Configuration management for Blender MCP."""
+"""Configuration management and shared utilities for Blender MCP."""
 
 import json
+import logging
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
+import httpx
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_HOST = "127.0.0.1"
+DEFAULT_PORT = 9876
+MAX_MESSAGE_SIZE = 100 * 1024 * 1024  # 100 MB
 
 DEFAULT_CONFIG = {
-    "tcp_host": "127.0.0.1",
-    "tcp_port": 9876,
+    "tcp_host": DEFAULT_HOST,
+    "tcp_port": DEFAULT_PORT,
     "sketchfab_api_token": "",
     "download_dir": "",
 }
@@ -64,7 +73,8 @@ def save_config(config: dict[str, Any]) -> None:
     try:
         os.chmod(config_path, 0o600)
     except OSError:
-        pass  # Windows may not support chmod
+        if sys.platform != "win32":
+            logger.warning("Failed to restrict config file permissions: %s", config_path)
 
     # Invalidate cache so next load_config picks up new values
     _cached_config = None
@@ -103,3 +113,27 @@ def get_download_dir(config: dict[str, Any] | None = None) -> Path:
 
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+# ---------------------------------------------------------------------------
+# Shared HTTP client
+# ---------------------------------------------------------------------------
+
+_http_client: httpx.Client | None = None
+
+
+def get_http_client(timeout: int = 30, headers: dict[str, str] | None = None) -> httpx.Client:
+    """Get or create a shared HTTP client, reusing the instance across calls.
+
+    Args:
+        timeout: Request timeout in seconds.
+        headers: Default headers for the client.
+    """
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.Client(
+            timeout=timeout,
+            follow_redirects=True,
+            headers=headers or {},
+        )
+    return _http_client

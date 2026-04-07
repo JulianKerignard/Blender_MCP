@@ -3,7 +3,6 @@
 import json
 import logging
 import os
-import tempfile
 import zipfile
 from pathlib import Path
 
@@ -13,6 +12,7 @@ from blender_mcp.server import mcp, _exec, _error_json
 from blender_mcp.config import (
     get_sketchfab_token,
     get_download_dir,
+    get_http_client,
     load_config,
     save_config,
 )
@@ -20,16 +20,6 @@ from blender_mcp.config import (
 logger = logging.getLogger(__name__)
 
 SKETCHFAB_API = "https://api.sketchfab.com/v3"
-
-# Module-level cached HTTP client (reused across calls)
-_http_client: httpx.Client | None = None
-
-
-def _get_http_client(timeout: int = 30) -> httpx.Client:
-    global _http_client
-    if _http_client is None or _http_client.is_closed:
-        _http_client = httpx.Client(timeout=timeout, follow_redirects=True)
-    return _http_client
 
 
 def _auth_headers() -> dict[str, str]:
@@ -65,7 +55,7 @@ def sketchfab_search(
         if categories.strip():
             params["categories"] = categories.strip()
 
-        client = _get_http_client()
+        client = get_http_client()
         resp = client.get(
             f"{SKETCHFAB_API}/search",
             params=params,
@@ -124,7 +114,7 @@ def sketchfab_get_model(uid: str) -> str:
         uid: The unique identifier of the SketchFab model.
     """
     try:
-        client = _get_http_client()
+        client = get_http_client()
         resp = client.get(
             f"{SKETCHFAB_API}/models/{uid}",
             headers=_auth_headers(),
@@ -202,7 +192,7 @@ def sketchfab_download_import(uid: str, name: str = "") -> str:
         headers = {"Authorization": f"Token {token}"}
 
         # Step 1: Request download URL
-        client = _get_http_client()
+        client = get_http_client()
         resp = client.get(
             f"{SKETCHFAB_API}/models/{uid}/download",
             headers=headers,
@@ -251,7 +241,8 @@ def sketchfab_download_import(uid: str, name: str = "") -> str:
 
         with zipfile.ZipFile(zip_path, "r") as zf:
             for member in zf.namelist():
-                if member.startswith("/") or ".." in member:
+                member_path = os.path.normpath(os.path.join(extract_dir, member))
+                if not member_path.startswith(os.path.normpath(str(extract_dir))):
                     return _error_json(f"Unsafe path in ZIP archive: {member}")
             zf.extractall(extract_dir)
 

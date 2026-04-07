@@ -7,24 +7,12 @@ from pathlib import Path
 import httpx
 
 from blender_mcp.server import mcp, _exec, _exec_json, _error_json
-from blender_mcp.config import get_download_dir, load_config
+from blender_mcp.config import get_download_dir, get_http_client, load_config
 
 logger = logging.getLogger(__name__)
 
 POLYHAVEN_API = "https://api.polyhaven.com"
 POLYHAVEN_HEADERS = {"User-Agent": "BlenderMCP/0.1.0"}
-
-# Module-level cached HTTP client (reused across calls)
-_http_client: httpx.Client | None = None
-
-
-def _get_http_client(timeout: int = 30) -> httpx.Client:
-    global _http_client
-    if _http_client is None or _http_client.is_closed:
-        _http_client = httpx.Client(
-            timeout=timeout, follow_redirects=True, headers=POLYHAVEN_HEADERS
-        )
-    return _http_client
 
 
 @mcp.tool()
@@ -48,7 +36,7 @@ def polyhaven_search(
         if categories.strip():
             params["c"] = categories.strip()
 
-        client = _get_http_client()
+        client = get_http_client(headers=POLYHAVEN_HEADERS)
         resp = client.get(f"{POLYHAVEN_API}/assets", params=params)
         resp.raise_for_status()
         data = resp.json()
@@ -98,7 +86,7 @@ def polyhaven_get_asset(asset_id: str) -> str:
         asset_id: The asset identifier (e.g. "kloofendal_48d_partly_cloudy").
     """
     try:
-        client = _get_http_client()
+        client = get_http_client(headers=POLYHAVEN_HEADERS)
         resp = client.get(f"{POLYHAVEN_API}/asset/{asset_id}")
         resp.raise_for_status()
         data = resp.json()
@@ -160,7 +148,7 @@ def polyhaven_download_hdri(
     """
     try:
         config = load_config()
-        client = _get_http_client()
+        client = get_http_client(headers=POLYHAVEN_HEADERS)
 
         # Fetch file URLs
         resp = client.get(f"{POLYHAVEN_API}/files/{asset_id}")
@@ -276,7 +264,7 @@ def polyhaven_download_texture(
     """
     try:
         config = load_config()
-        client = _get_http_client()
+        client = get_http_client(headers=POLYHAVEN_HEADERS)
 
         # Fetch file URLs
         resp = client.get(f"{POLYHAVEN_API}/files/{asset_id}")
